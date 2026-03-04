@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "jilyent",
+  "private_key_id": "9f964c76a5baff4ba6857c5b5fa99fcc95388ec6",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDWt4nR8RP/bfaw\n57MBEbOAbOUMnKLbve4ItbJGC6vdOM0TFnpk1LSr3oHVe9Q5pRRwnpmpEjQMmrJP\nm4aGjDC7VemeXob6DSt4VgbgMD6hMqRkSGNqMtCJasx+csPkqBbxaIcWwh9OVUmy\nTtirxKyi82Hmve1f9xUkhxdmGOPyt6pocT1GAwT9AInCbjCMQW/ro7FKSS1bc35b\nzvHpKzXoEC7hrisWBwnAjRIDOfX0oHA7IBnGbueaocrC3tH3bBC/DGKeEBh3zIO0\nSoQSiO/PqGRnCWaY1sniHSL8tBImybWaEtBpZWk7+giDT42zCWMOLec9tIA+XCfs\nDJUXWHibAgMBAAECggEAX6x0mrmDIaPL8lOrrWRHyYe8H/yDjMp6kCL2BsQYloBC\n0KiJbPhicNq6m3eLvwvRqcThzzYvPxaHMXWpYbaB2FeVu11/Y1gO8JXUhny4y3cX\nTR/8PEvcI/8Uk5trsi072+Gpn/hrnqneJrd/UDpYeltcWkZyyPn9z8LqKDIbEAD5\nN8IxJuLvpam9j7wgvvKqDWLuAJqDs/u/cxM03NEsXXVlvLsyuWjhYJBopLi6kDfQ\nffEL3hYCe9aZUfKdBa6LhA0BNJQFnAUmY840axHLRrvad5IFhg8XneXPIgmUttzh\ncWDWUAZDdzR5FC4DKFWsXJyZIqyKXn8fpq7BYABjQQKBgQD9iKtK9XqcSKcju/TU\nubZNu5F7z90C1b4S5OHTfM/SP6eFqeGffzb5Yo6AChnpPojvrVdS1ah/K7ulcpne\nZ7cT9bme+c0LwsOq+DjpG5idpANz//ZuJsfb4CcWRD9gjbOfgSQxkJ1I2cR37v/X\nPLqNtQ1s2p7vvzJyRgqq8avY6wKBgQDYzjXVnv4Rj1wfehb1gfd/HMswGYNKHMu1\nkcx0kBtHMjh8vEm8ac8TP1k5FpYSI2O2S3X4X7Ct8/udE7X1/vC/Qfss92AVLN3D\nq0jQn0EOwFUHy/j1mr9DLK051ZtmbhBQtUWWTPfbHX9t0rguMThwBa2+eWgZ0vC1\nVaZkQhjzEQKBgA4speb68m/qX+3PhFCgUWDnK6sQY/rUmFvWEAoS4EuQ43zFkqeo\nJRqsN+tQpUI1DNLZjhhDebgiactGLPQSOFoVUttge+Y8bVQRrJzbvhySHt9NYCmo\nYWQZlBXamvB6+5/fSHa87w4znphV9FfEPWnOxYFgd6JPvjJFWDNWb5UhAoGAH1Wu\ncjGIhwExT1tV9iXSn4yJ0Wnej9eZmaR46F/rkV6wy1ZrUc/5Hc8KFjYtenGi97Xw\nVvV9k6avtwQiSGuQYBQpOVaHjIfvhVg8LerWfEtP/tB8KwMyoYLThohY7XT65q9M\nX2zAZerdgAH0nLiAb7BibCUf5puWLp8ybUsgUAECgYAtLHVSUvSHv0nwMmPKPRyl\nXS5tICu1aSwzrJz2kl/XkTPmOg+Y3aQfWN6CxxVNhGSIKc6X0cI7ejIsK1lOTBU3\njh+JQK2iuQB/DjLd82fdSLP0sAMH5MB12oWF2Rdlg9F5PbKHdXifJIj9qONxiwDQ\njjMRYkoWBfjkOClfYUHbzw==\n-----END PRIVATE KEY-----\n",
+  "client_email": "jilyent@jilyent.iam.gserviceaccount.com",
+  "client_id": "115875954059369465339",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/jilyent%40jilyent.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

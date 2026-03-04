@@ -1,0 +1,23 @@
+{
+  "name": "jily-web",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-env": "^7.29.0",
+    "@babel/preset-react": "^7.28.5",
+    "axios": "^1.6.7",
+    "babel-loader": "^10.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "webpack": "^5.105.4",
+    "webpack-cli": "^6.0.1"
+  },
+  "scripts": {
+    "start": "webpack serve --mode development --open",
+    "build": "webpack --mode production"
+  },
+  "devDependencies": {
+    "webpack-dev-server": "^5.2.3"
+  }
+}
