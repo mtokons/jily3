@@ -8,7 +8,17 @@ app.use(cors());
 app.use(bodyParser.json());
 
 const SHEET_ID = '1ExtunXeJhWy7VP8r-PCDuQY8dAKsuYamGTVUUQcOfwc';
-const CREDENTIALS = require('./credentials.json');
+
+let CREDENTIALS;
+if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+  CREDENTIALS = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  // Fix private key newlines in case Render escapes them
+  if (CREDENTIALS.private_key) {
+    CREDENTIALS.private_key = CREDENTIALS.private_key.replace(/\\n/g, '\n');
+  }
+} else {
+  CREDENTIALS = require('./credentials.json');
+}
 
 const auth = new google.auth.GoogleAuth({
   credentials: CREDENTIALS,
