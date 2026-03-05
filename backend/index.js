@@ -12,12 +12,18 @@ const SHEET_ID = '1ExtunXeJhWy7VP8r-PCDuQY8dAKsuYamGTVUUQcOfwc';
 let CREDENTIALS;
 if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
   CREDENTIALS = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-  // Fix private key newlines in case Render escapes them
   if (CREDENTIALS.private_key) {
     CREDENTIALS.private_key = CREDENTIALS.private_key.replace(/\\n/g, '\n');
   }
 } else {
-  CREDENTIALS = require('./credentials.json');
+  // Try Render secret file path first, then local fallback
+  const fs = require('fs');
+  const secretPath = '/etc/secrets/credentials.json';
+  if (fs.existsSync(secretPath)) {
+    CREDENTIALS = JSON.parse(fs.readFileSync(secretPath, 'utf8'));
+  } else {
+    CREDENTIALS = require('./credentials.json');
+  }
 }
 
 const auth = new google.auth.GoogleAuth({
