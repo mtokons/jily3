@@ -28,7 +28,7 @@ import axios from 'axios';
 // ─── Config ──────────────────────────────────────────────────────────────────
 // For physical device: use your Mac's LAN IP
 // For emulator: use http://10.0.2.2:4000
-const API_BASE = 'http://192.168.2.33:4000';
+const API_BASE = 'https://jily3.onrender.com';
 const api      = axios.create({ baseURL: API_BASE, timeout: 10000 });
 const getToday = () => new Date().toISOString().slice(0, 10);
 
@@ -124,6 +124,7 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [sales, setSales]       = useState([]);
   const [summary, setSummary]   = useState({});
+  const [investment, setInvestment] = useState({ entries: [], summary: {} });
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
 
@@ -142,6 +143,14 @@ export default function App() {
   const [sModal, setSModal] = useState(false);
   const [editSId, setEditSId] = useState(null);
 
+  // Investment forms
+  const emptyInv = () => ({ amount: '', date: getToday(), note: '' });
+  const emptyWdr = () => ({ amount: '', date: getToday() });
+  const [invModal, setInvModal] = useState(false);
+  const [wdrModal, setWdrModal] = useState(false);
+  const [invForm, setInvForm]   = useState(emptyInv());
+  const [wdrForm, setWdrForm]   = useState(emptyWdr());
+
   const productMap = useMemo(() => {
     const m = {};
     products.forEach(p => { m[p.code] = p; });
@@ -152,14 +161,16 @@ export default function App() {
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
-      const [pr, sr, smr] = await Promise.all([
+      const [pr, sr, smr, ir] = await Promise.all([
         api.get('/products'),
         api.get('/sales'),
         api.get('/summary?month=' + selMonth),
+        api.get('/investment'),
       ]);
       setProducts(pr.data || []);
       setSales(sr.data || []);
       setSummary(smr.data || {});
+      setInvestment(ir.data || { entries: [], summary: {} });
       setError('');
     } catch (e) {
       setError('Cannot reach backend. Check API_BASE in App.js.\n(' + API_BASE + ')');
@@ -223,6 +234,31 @@ export default function App() {
     ]);
   };
 
+  // ── Investment / Withdrawal ────────────────────────────────────────────────
+  const saveInvestment = async () => {
+    if (!invForm.amount || !invForm.date) {
+      Alert.alert('Missing fields', 'Amount and date are required.'); return;
+    }
+    try {
+      await api.post('/investment', { type: 'investment', amount: Number(invForm.amount), date: invForm.date, note: invForm.note });
+      setInvModal(false); setInvForm(emptyInv()); await loadAll();
+    } catch (e) {
+      Alert.alert('Error', e.response?.data?.error || 'Failed to save investment.');
+    }
+  };
+
+  const saveWithdrawal = async () => {
+    if (!wdrForm.amount || !wdrForm.date) {
+      Alert.alert('Missing fields', 'Amount and date are required.'); return;
+    }
+    try {
+      await api.post('/investment', { type: 'withdrawal', amount: Number(wdrForm.amount), date: wdrForm.date });
+      setWdrModal(false); setWdrForm(emptyWdr()); await loadAll();
+    } catch (e) {
+      Alert.alert('Insufficient Balance', e.response?.data?.error || 'Withdrawal failed.');
+    }
+  };
+
   // ── Sale preview ─────────────────────────────────────────────────────────
   const salePreview = useMemo(() => {
     if (!sForm.productCode || !sForm.qty) return null;
@@ -240,7 +276,7 @@ export default function App() {
   // ── Render helpers ────────────────────────────────────────────────────────
   const renderTabBar = () => (
     <View style={s.tabBar}>
-      {[['dashboard','Dashboard'],['products','Products'],['sales','Sales']].map(([key,lbl]) => (
+      {[['dashboard','Dashboard'],['products','Products'],['sales','Sales'],['investment','Investment']].map(([key,lbl]) => (
         <TouchableOpacity key={key} style={[s.tabBtn, tab === key && s.tabBtnActive]} onPress={() => setTab(key)}>
           <Text style={[s.tabBtnText, tab === key && s.tabBtnTextActive]}>{lbl}</Text>
         </TouchableOpacity>
@@ -366,7 +402,99 @@ export default function App() {
       )}
     </View>
   );
+  // ─── INVESTMENT TAB ───────────────────────────────────────────────────────
+  const renderInvestment = () => {
+    const invSum = investment.summary || {};
+    const isNegBal = (invSum.aktersBalanceRaw || 0) < 0;
+    return (
+      <ScrollView contentContainerStyle={s.scrollContent}>
+        <Text style={s.pageTitle}>Investment & Profit</Text>
 
+        {loading ? <ActivityIndicator size="large" color={C.brand} style={{ marginTop: 30 }} /> : (
+          <>
+            {/* Action Buttons */}
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+              <TouchableOpacity
+                style={[s.addBtn, { backgroundColor: C.brand, flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }]}
+                onPress={() => { setInvForm(emptyInv()); setInvModal(true); }}
+              >
+                <Text style={s.addBtnText}>💰 Add Investment</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.addBtn, { backgroundColor: C.amber, flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: 'center' }]}
+                onPress={() => { setWdrForm(emptyWdr()); setWdrModal(true); }}
+              >
+                <Text style={s.addBtnText}>💸 Akter Withdraw</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Summary Cards */}
+            <Text style={[s.subTitle, { marginBottom: 8 }]}>Company Overview</Text>
+            <StatCard label="Total Investment (Tokon)"  value={invSum.totalInvestment  || '৳0.00'} accent={C.brand} />
+            <StatCard label="Total Sales Revenue"       value={invSum.totalRevenue     || '৳0.00'} accent={C.teal} />
+            <StatCard label="Net Profit / Loss"         value={invSum.netProfit        || '৳0.00'} accent={isNeg(invSum.netProfit) ? C.red : C.green} />
+            <StatCard label="Cash In Hand"              value={invSum.cashInHand       || '৳0.00'} accent={C.dark} />
+
+            <Text style={[s.subTitle, { marginBottom: 8, marginTop: 8 }]}>Profit Share (50% each)</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+              <View style={[s.card, { flex: 1, borderLeftWidth: 4, borderLeftColor: C.brand }]}>
+                <Text style={[s.statLabel, { color: C.muted }]}>Tokon's Share</Text>
+                <Text style={[s.statValue, { color: C.brand, fontSize: 18 }]}>{invSum.tokonsProfit || '৳0.00'}</Text>
+              </View>
+              <View style={[s.card, { flex: 1, borderLeftWidth: 4, borderLeftColor: C.amber }]}>
+                <Text style={[s.statLabel, { color: C.muted }]}>Akter's Share</Text>
+                <Text style={[s.statValue, { color: C.amber, fontSize: 18 }]}>{invSum.aktersProfit || '৳0.00'}</Text>
+              </View>
+            </View>
+
+            <Text style={[s.subTitle, { marginBottom: 8 }]}>Akter's Withdrawal Tracker</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+              <View style={[s.card, { flex: 1, borderLeftWidth: 4, borderLeftColor: C.red }]}>
+                <Text style={[s.statLabel, { color: C.muted }]}>Withdrawn</Text>
+                <Text style={[s.statValue, { color: C.red, fontSize: 18 }]}>{invSum.aktersWithdrawals || '৳0.00'}</Text>
+              </View>
+              <View style={[s.card, { flex: 1, borderLeftWidth: 4, borderLeftColor: isNegBal ? C.red : C.green }]}>
+                <Text style={[s.statLabel, { color: C.muted }]}>Available Balance</Text>
+                <Text style={[s.statValue, { color: isNegBal ? C.red : C.green, fontSize: 18 }]}>{invSum.aktersBalance || '৳0.00'}</Text>
+              </View>
+            </View>
+
+            {/* History */}
+            <Text style={[s.subTitle, { marginBottom: 8 }]}>Transaction History</Text>
+            {(investment.entries || []).length === 0 ? (
+              <Text style={s.emptyText}>No entries yet. Add an investment to get started.</Text>
+            ) : (
+              [...(investment.entries || [])].reverse().map(entry => (
+                <View key={entry.id} style={[s.card, { borderLeftWidth: 4, borderLeftColor: entry.type === 'investment' ? C.brand : C.amber }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <View style={[s.codeBadge, { backgroundColor: entry.type === 'investment' ? C.brand + '20' : C.amber + '20' }]}>
+                          <Text style={[s.codeBadgeText, { color: entry.type === 'investment' ? C.brand : C.amber }]}>
+                            {entry.type === 'investment' ? 'INVEST' : 'WITHDRAW'}
+                          </Text>
+                        </View>
+                        <Text style={s.productName}>{entry.person}</Text>
+                      </View>
+                      {!!entry.note && <Text style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{entry.note}</Text>}
+                      <Text style={{ fontSize: 11, color: C.muted }}>{entry.date}</Text>
+                    </View>
+                    <Text style={[s.statValue, { fontSize: 16, color: entry.type === 'investment' ? C.brand : C.amber }]}>
+                      {entry.type === 'investment' ? '+' : '-'}{BDT(entry.amount)}
+                    </Text>
+                  </View>
+                </View>
+              ))
+            )}
+
+            <TouchableOpacity style={[s.refreshBtn, { marginTop: 8 }]} onPress={loadAll}>
+              <Text style={s.refreshBtnText}>↻  Refresh</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
+    );
+  };
   // ─── PRODUCT MODAL ───────────────────────────────────────────────────────
   const renderProductModal = () => (
     <Modal visible={pModal} animationType="slide" transparent onRequestClose={() => setPModal(false)}>
@@ -467,6 +595,71 @@ export default function App() {
     </Modal>
   );
 
+  // ─── INVESTMENT MODAL ─────────────────────────────────────────────────────
+  const renderInvestmentModal = () => (
+    <Modal visible={invModal} animationType="slide" transparent onRequestClose={() => setInvModal(false)}>
+      <View style={s.modalOverlay}>
+        <View style={s.modalBox}>
+          <Text style={s.modalTitle}>Add Investment (Tokon)</Text>
+          <ScrollView>
+            <FieldRow label="Amount (৳) *">
+              <TextInput style={s.input} value={invForm.amount} onChangeText={v => setInvForm({ ...invForm, amount: v })} keyboardType="numeric" placeholder="0.00" placeholderTextColor={C.muted} />
+            </FieldRow>
+            <FieldRow label="Date *">
+              <DateInput value={invForm.date} onChange={v => setInvForm({ ...invForm, date: v })} />
+            </FieldRow>
+            <FieldRow label="Note (optional)">
+              <TextInput style={s.input} value={invForm.note} onChangeText={v => setInvForm({ ...invForm, note: v })} placeholder="e.g. Bought stock for March" placeholderTextColor={C.muted} />
+            </FieldRow>
+          </ScrollView>
+          <View style={s.modalActions}>
+            <TouchableOpacity style={s.cancelBtn} onPress={() => setInvModal(false)}>
+              <Text style={s.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.saveBtn, { backgroundColor: C.brand }]} onPress={saveInvestment}>
+              <Text style={s.saveBtnText}>Save Investment</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+  // ─── WITHDRAWAL MODAL ─────────────────────────────────────────────────────
+  const renderWithdrawalModal = () => (
+    <Modal visible={wdrModal} animationType="slide" transparent onRequestClose={() => setWdrModal(false)}>
+      <View style={s.modalOverlay}>
+        <View style={s.modalBox}>
+          <Text style={s.modalTitle}>Akter Withdraw Profit</Text>
+          <View style={[s.previewBox, { backgroundColor: '#fffbeb', borderColor: C.amber, marginBottom: 16 }]}>
+            <Text style={{ color: C.amber, fontWeight: '700', fontSize: 13 }}>
+              Available Balance: {(investment.summary || {}).aktersBalance || '৳0.00'}
+            </Text>
+            <Text style={{ color: C.muted, fontSize: 11, marginTop: 4 }}>
+              Akter can only withdraw from his profit share, not the investment amount.
+            </Text>
+          </View>
+          <ScrollView>
+            <FieldRow label="Withdrawal Amount (৳) *">
+              <TextInput style={s.input} value={wdrForm.amount} onChangeText={v => setWdrForm({ ...wdrForm, amount: v })} keyboardType="numeric" placeholder="0.00" placeholderTextColor={C.muted} />
+            </FieldRow>
+            <FieldRow label="Date *">
+              <DateInput value={wdrForm.date} onChange={v => setWdrForm({ ...wdrForm, date: v })} />
+            </FieldRow>
+          </ScrollView>
+          <View style={s.modalActions}>
+            <TouchableOpacity style={s.cancelBtn} onPress={() => setWdrModal(false)}>
+              <Text style={s.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.saveBtn, { backgroundColor: C.amber }]} onPress={saveWithdrawal}>
+              <Text style={s.saveBtnText}>Confirm Withdrawal</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // ─── Root ─────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={s.root}>
@@ -488,9 +681,10 @@ export default function App() {
 
       {/* Tab content */}
       <View style={{ flex: 1, backgroundColor: C.bgPage }}>
-        {tab === 'dashboard' && renderDashboard()}
-        {tab === 'products'  && renderProducts()}
-        {tab === 'sales'     && renderSales()}
+        {tab === 'dashboard'  && renderDashboard()}
+        {tab === 'products'   && renderProducts()}
+        {tab === 'sales'      && renderSales()}
+        {tab === 'investment' && renderInvestment()}
       </View>
 
       {/* Tab bar */}
@@ -499,6 +693,8 @@ export default function App() {
       {/* Modals */}
       {renderProductModal()}
       {renderSaleModal()}
+      {renderInvestmentModal()}
+      {renderWithdrawalModal()}
     </SafeAreaView>
   );
 }

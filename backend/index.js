@@ -32,8 +32,9 @@ const auth = new google.auth.GoogleAuth({
 });
 const sheets = google.sheets({ version: 'v4', auth });
 
-const PRODUCT_HEADERS = ['Code', 'Name', 'Cost Price', 'Sales Price'];
-const SALES_HEADERS   = ['Product Code', 'Product Name', 'Qty', 'Date', 'Cost Price', 'Sales Price', 'Revenue', 'Total Cost', 'Profit'];
+const PRODUCT_HEADERS    = ['Code', 'Name', 'Cost Price', 'Sales Price'];
+const SALES_HEADERS      = ['Product Code', 'Product Name', 'Qty', 'Date', 'Cost Price', 'Sales Price', 'Revenue', 'Total Cost', 'Profit'];
+const INVESTMENT_HEADERS = ['Type', 'Person', 'Amount', 'Date', 'Note'];
 
 // Returns data rows only (skips row 1 = header)
 async function getDataRows(range) {
@@ -65,8 +66,9 @@ async function ensureSheetsExist() {
   const meta = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
   const existing = (meta.data.sheets || []).map(s => s.properties && s.properties.title);
   const requests = [];
-  if (!existing.includes('Products')) requests.push({ addSheet: { properties: { title: 'Products' } } });
-  if (!existing.includes('Sales'))    requests.push({ addSheet: { properties: { title: 'Sales' } } });
+  if (!existing.includes('Products'))   requests.push({ addSheet: { properties: { title: 'Products' } } });
+  if (!existing.includes('Sales'))      requests.push({ addSheet: { properties: { title: 'Sales' } } });
+  if (!existing.includes('Investment')) requests.push({ addSheet: { properties: { title: 'Investment' } } });
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests } });
   }
@@ -78,6 +80,10 @@ async function ensureSheetsExist() {
   const sRow = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Sales!A1:I1' });
   if (!sRow.data.values || sRow.data.values[0][0] !== 'Product Code') {
     await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: 'Sales!A1', valueInputOption: 'USER_ENTERED', requestBody: { values: [SALES_HEADERS] } });
+  }
+  const iRow = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Investment!A1:E1' });
+  if (!iRow.data.values || iRow.data.values[0][0] !== 'Type') {
+    await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: 'Investment!A1', valueInputOption: 'USER_ENTERED', requestBody: { values: [INVESTMENT_HEADERS] } });
   }
 }
 
@@ -247,6 +253,82 @@ app.get('/summary', async (req, res) => {
       monthRevenue: formatBDT(monthRevenue),
       monthProfit: formatBDT(monthProfit)
     });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── INVESTMENT ───────────────────────────────────────────────────────────────
+
+async function getInvestmentSummary() {
+  const [invRows, salesRows] = await Promise.all([
+    getDataRows('Investment!A:E'),
+    getDataRows('Sales!A:I'),
+  ]);
+  const totalInvestment  = invRows.filter(r => r[0] === 'investment').reduce((a, r) => a + (Number(r[2]) || 0), 0);
+  const totalWithdrawals = invRows.filter(r => r[0] === 'withdrawal').reduce((a, r) => a + (Number(r[2]) || 0), 0);
+  const totalRevenue     = salesRows.reduce((a, r) => a + (Number(r[6]) || 0), 0);
+  const totalCOGS        = salesRows.reduce((a, r) => a + (Number(r[7]) || 0), 0);
+  const netProfit        = totalRevenue - totalCOGS;
+  const aktersProfit     = netProfit * 0.5;
+  const tokonsProfit     = netProfit * 0.5;
+  const aktersBalance    = aktersProfit - totalWithdrawals;
+  const cashInHand       = totalInvestment + netProfit - totalWithdrawals;
+  return { totalInvestment, totalWithdrawals, totalRevenue, totalCOGS, netProfit, aktersProfit, tokonsProfit, aktersBalance, cashInHand };
+}
+
+app.get('/investment', async (req, res) => {
+  try {
+    const [invRows, summary] = await Promise.all([
+      getDataRows('Investment!A:E'),
+      getInvestmentSummary(),
+    ]);
+    const entries = invRows.map((r, i) => ({
+      id: i + 1,
+      type: r[0] || '',
+      person: r[1] || '',
+      amount: Number(r[2]) || 0,
+      date: r[3] || '',
+      note: r[4] || '',
+    }));
+    const formatBDT = v => `৳${Number(v).toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    res.json({
+      entries,
+      summary: {
+        totalInvestment:   formatBDT(summary.totalInvestment),
+        totalRevenue:      formatBDT(summary.totalRevenue),
+        totalCOGS:         formatBDT(summary.totalCOGS),
+        netProfit:         formatBDT(summary.netProfit),
+        aktersProfit:      formatBDT(summary.aktersProfit),
+        tokonsProfit:      formatBDT(summary.tokonsProfit),
+        aktersWithdrawals: formatBDT(summary.totalWithdrawals),
+        aktersBalance:     formatBDT(summary.aktersBalance),
+        cashInHand:        formatBDT(summary.cashInHand),
+        aktersBalanceRaw:  summary.aktersBalance,
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/investment', async (req, res) => {
+  const { type, amount, date, note } = req.body;
+  if (!type || !amount || !date)
+    return res.status(400).json({ error: 'type, amount, date required.' });
+  if (!['investment', 'withdrawal'].includes(type))
+    return res.status(400).json({ error: 'type must be investment or withdrawal.' });
+  const amt = Number(amount);
+  if (amt <= 0) return res.status(400).json({ error: 'Amount must be positive.' });
+
+  try {
+    if (type === 'withdrawal') {
+      const summary = await getInvestmentSummary();
+      if (amt > summary.aktersBalance) {
+        return res.status(400).json({
+          error: `Insufficient balance. Akter's available profit balance: ৳${summary.aktersBalance.toFixed(2)}`,
+        });
+      }
+    }
+    const person = type === 'investment' ? 'Tokon' : 'Akter';
+    await appendRow('Investment!A:E', [type, person, amt, date, note || '']);
+    res.json({ type, person, amount: amt, date, note: note || '' });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
