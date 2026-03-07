@@ -133,6 +133,7 @@ export default function App() {
 
   const monthOpts = useMemo(() => getMonthOptions(), []);
   const [selMonth, setSelMonth] = useState(monthOpts[0].val);
+  const [invSelMonth, setInvSelMonth] = useState(monthOpts[0].val);
 
   // Product form
   const emptyP = { code: '', name: '', costPrice: '', salesPrice: '' };
@@ -171,7 +172,7 @@ export default function App() {
         api.get('/products'),
         api.get('/sales'),
         api.get('/summary?month=' + selMonth),
-        api.get('/investment'),
+        api.get('/investment?month=' + invSelMonth),
         api.get('/buys'),
         api.get('/inventory'),
       ]);
@@ -187,7 +188,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selMonth]);
+  }, [selMonth, invSelMonth]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -437,6 +438,7 @@ export default function App() {
   const renderInvestment = () => {
     const invSum = investment.summary || {};
     const isNegBal = (invSum.aktersBalanceRaw || 0) < 0;
+    const invMonthLabel = (monthOpts.find(o => o.val === invSelMonth) || {}).label || '';
     return (
       <ScrollView contentContainerStyle={s.scrollContent}>
         <Text style={s.pageTitle}>Investment & Profit</Text>
@@ -459,12 +461,34 @@ export default function App() {
               </TouchableOpacity>
             </View>
 
+            {/* Month selector for profit */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: C.muted }}>Month:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {monthOpts.slice(0, 12).map(o => (
+                    <TouchableOpacity
+                      key={o.val}
+                      onPress={() => setInvSelMonth(o.val)}
+                      style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: invSelMonth === o.val ? C.brand : C.cardBg, borderWidth: 1.5, borderColor: invSelMonth === o.val ? C.brand : C.border }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: invSelMonth === o.val ? '#fff' : C.dark }}>{o.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
             {/* Summary Cards */}
             <Text style={[s.subTitle, { marginBottom: 8 }]}>Company Overview</Text>
             <StatCard label="Total Investment (Tokon)"  value={invSum.totalInvestment  || '৳0.00'} accent={C.brand} />
             <StatCard label="Total Buy Cost"            value={invSum.totalBuyCost     || '৳0.00'} accent={C.violet} />
             <StatCard label="Total Sales Revenue"       value={invSum.totalRevenue     || '৳0.00'} accent={C.teal} />
-            <StatCard label="Net Profit / Loss"         value={invSum.netProfit        || '৳0.00'} accent={isNeg(invSum.netProfit) ? C.red : C.green} />
+            <StatCard label="Net Profit (Revenue - Buy Cost)" value={invSum.netProfit  || '৳0.00'} accent={isNeg(invSum.netProfit) ? C.red : C.green} />
+            <StatCard label="Sales Profit (Product-wise)" value={invSum.salesProfit    || '৳0.00'} accent={isNeg(invSum.salesProfit) ? C.red : C.green} />
+            <StatCard label="Today's Profit / Loss"     value={invSum.todayProfit      || '৳0.00'} accent={isNeg(invSum.todayProfit) ? C.red : C.green} />
+            <StatCard label={invMonthLabel + ' Profit / Loss'} value={invSum.monthProfit || '৳0.00'} accent={isNeg(invSum.monthProfit) ? C.red : C.green} />
+            <StatCard label="Total Profit / Loss"       value={invSum.totalProfit      || '৳0.00'} accent={isNeg(invSum.totalProfit) ? C.red : C.green} />
             <StatCard label="Cash In Hand"              value={invSum.cashInHand       || '৳0.00'} accent={C.dark} />
 
             <Text style={[s.subTitle, { marginBottom: 8, marginTop: 8 }]}>Profit Share (50% each)</Text>

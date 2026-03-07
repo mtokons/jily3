@@ -159,6 +159,7 @@ export default function App() {
 
   const monthOpts = useMemo(() => getMonthOptions(), []);
   const [selMonth, setSelMonth] = useState(monthOpts[0].val);
+  const [invSelMonth, setInvSelMonth] = useState(monthOpts[0].val);
 
   const [showPModal, setShowPModal] = useState(false);
   const [showSModal, setShowSModal] = useState(false);
@@ -192,7 +193,7 @@ export default function App() {
         api.get('/products'),
         api.get('/sales'),
         api.get('/summary?month=' + selMonth),
-        api.get('/investment'),
+        api.get('/investment?month=' + invSelMonth),
         api.get('/buys'),
         api.get('/inventory'),
       ]);
@@ -208,7 +209,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selMonth]);
+  }, [selMonth, invSelMonth]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
@@ -478,6 +479,16 @@ export default function App() {
         {tab === 'investment' && (<>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '18px', fontWeight: 800 }}>Investment & Profit Sharing</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: muted, fontWeight: 600 }}>Month:</span>
+              <select
+                style={{ padding: '8px 14px', border: '1.5px solid ' + border, borderRadius: '10px', fontSize: '14px', background: white, outline: 'none', fontWeight: 600, cursor: 'pointer' }}
+                value={invSelMonth}
+                onChange={e => setInvSelMonth(e.target.value)}
+              >
+                {monthOpts.map(o => <option key={o.val} value={o.val}>{o.label}</option>)}
+              </select>
+            </div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               <button style={btn(brand)} onClick={() => { setInvForm(emptyInv()); setShowInvModal(true); }}>💰 Add Investment</button>
               <button style={btn(amber)} onClick={() => { setWdrForm(emptyWdr()); setShowWdrModal(true); }}>💸 Akter Withdraw</button>
@@ -489,7 +500,11 @@ export default function App() {
             <StatCard label="Total Investment (Tokon)" value={invSum.totalInvestment  || '৳0.00'} accent={brand} />
             <StatCard label="Total Buy Cost"           value={invSum.totalBuyCost     || '৳0.00'} accent={'#7c3aed'} />
             <StatCard label="Total Sales Revenue"      value={invSum.totalRevenue     || '৳0.00'} accent={teal} />
-            <StatCard label="Net Profit / Loss"        value={invSum.netProfit        || '৳0.00'} accent={green} />
+            <StatCard label="Net Profit (Revenue - Buy Cost)" value={invSum.netProfit || '৳0.00'} accent={green} />
+            <StatCard label="Sales Profit (Product-wise)" value={invSum.salesProfit   || '৳0.00'} accent={green} />
+            <StatCard label="Today's Profit / Loss"    value={invSum.todayProfit      || '৳0.00'} accent={green} />
+            <StatCard label={(monthOpts.find(o => o.val === invSelMonth) || {}).label + ' Profit / Loss'} value={invSum.monthProfit || '৳0.00'} accent={green} />
+            <StatCard label="Total Profit / Loss"      value={invSum.totalProfit      || '৳0.00'} accent={green} />
             <StatCard label="Cash In Hand"             value={invSum.cashInHand       || '৳0.00'} accent={textDk} />
           </div>
 

@@ -267,7 +267,7 @@ app.get('/summary', async (req, res) => {
 
 // ─── INVESTMENT ───────────────────────────────────────────────────────────────
 
-async function getInvestmentSummary() {
+async function getInvestmentSummary(month) {
   const [invRows, salesRows, buyRows] = await Promise.all([
     getDataRows('Investment!A:E'),
     getDataRows('Sales!A:J'),
@@ -275,24 +275,39 @@ async function getInvestmentSummary() {
   ]);
   const totalInvestment  = invRows.filter(r => r[0] === 'investment').reduce((a, r) => a + (Number(r[2]) || 0), 0);
   const totalWithdrawals = invRows.filter(r => r[0] === 'withdrawal').reduce((a, r) => a + (Number(r[2]) || 0), 0);
-  const totalRevenue     = salesRows.reduce((a, r) => {
+  // Calculate profit from sales entries
+  const sales = salesRows.map(r => ({
+    date: r[3] || '',
+    profit: r.length >= 10 ? Number(r[9]) || 0 : Number(r[8]) || 0,
+  }));
+  const today = new Date().toISOString().slice(0, 10);
+  const todayProfit   = sales.filter(s => s.date === today).reduce((a, s) => a + s.profit, 0);
+  const selMonth      = month || new Date().toISOString().slice(0, 7);
+  const monthProfit   = sales.filter(s => s.date && s.date.slice(0, 7) === selMonth).reduce((a, s) => a + s.profit, 0);
+  const totalProfit   = sales.reduce((a, s) => a + s.profit, 0);
+  const totalRevenue  = salesRows.reduce((a, r) => {
     const rev = r.length >= 10 ? Number(r[7]) || 0 : Number(r[6]) || 0;
     return a + rev;
   }, 0);
-  const totalBuyCost     = buyRows.reduce((a, r) => a + (Number(r[4]) || 0), 0);
-  const netProfit        = totalRevenue - totalBuyCost;
-  const aktersProfit     = netProfit * 0.5;
-  const tokonsProfit     = netProfit * 0.5;
-  const aktersBalance    = aktersProfit - totalWithdrawals;
-  const cashInHand       = totalInvestment - totalBuyCost + totalRevenue - totalWithdrawals;
-  return { totalInvestment, totalWithdrawals, totalRevenue, totalBuyCost, netProfit, aktersProfit, tokonsProfit, aktersBalance, cashInHand };
+  const totalBuyCost  = buyRows.reduce((a, r) => a + (Number(r[4]) || 0), 0);
+  // netProfit: totalRevenue - totalBuyCost (overall business margin)
+  const netProfit     = totalRevenue - totalBuyCost;
+  // salesProfit: sum of per-sale product profit (Revenue - CostOfGoodsSold per sale)
+  const salesProfit   = totalProfit;
+  // Profit share based on salesProfit
+  const aktersProfit  = salesProfit * 0.5;
+  const tokonsProfit  = salesProfit * 0.5;
+  const aktersBalance = aktersProfit - totalWithdrawals;
+  const cashInHand    = totalInvestment - totalBuyCost + totalRevenue - totalWithdrawals;
+  return { totalInvestment, totalWithdrawals, totalRevenue, totalBuyCost, netProfit, salesProfit, aktersProfit, tokonsProfit, aktersBalance, cashInHand, todayProfit, monthProfit, totalProfit };
 }
 
 app.get('/investment', async (req, res) => {
   try {
+    const { month } = req.query;
     const [invRows, summary] = await Promise.all([
       getDataRows('Investment!A:E'),
-      getInvestmentSummary(),
+      getInvestmentSummary(month),
     ]);
     const entries = invRows.map((r, i) => ({
       id: i + 1,
@@ -309,13 +324,17 @@ app.get('/investment', async (req, res) => {
         totalInvestment:   formatBDT(summary.totalInvestment),
         totalBuyCost:      formatBDT(summary.totalBuyCost),
         totalRevenue:      formatBDT(summary.totalRevenue),
-        netProfit:         formatBDT(summary.netProfit),
-        aktersProfit:      formatBDT(summary.aktersProfit),
-        tokonsProfit:      formatBDT(summary.tokonsProfit),
-        aktersWithdrawals: formatBDT(summary.totalWithdrawals),
-        aktersBalance:     formatBDT(summary.aktersBalance),
-        cashInHand:        formatBDT(summary.cashInHand),
-        aktersBalanceRaw:  summary.aktersBalance,
+        netProfit:        formatBDT(summary.netProfit),
+        salesProfit:      formatBDT(summary.salesProfit),
+        todayProfit:      formatBDT(summary.todayProfit),
+        monthProfit:      formatBDT(summary.monthProfit),
+        totalProfit:      formatBDT(summary.totalProfit),
+        aktersProfit:     formatBDT(summary.aktersProfit),
+        tokonsProfit:     formatBDT(summary.tokonsProfit),
+        aktersWithdrawals:formatBDT(summary.totalWithdrawals),
+        aktersBalance:    formatBDT(summary.aktersBalance),
+        cashInHand:       formatBDT(summary.cashInHand),
+        aktersBalanceRaw: summary.aktersBalance,
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
