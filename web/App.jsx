@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import axios from 'axios';
 
-const api = axios.create({ baseURL: 'http://localhost:4000' });
+const API_BASE = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+  ? 'http://localhost:4000'
+  : 'https://jily3.onrender.com';
+const api = axios.create({ baseURL: API_BASE });
 const TODAY = new Date().toISOString().slice(0, 10);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -51,10 +54,12 @@ function smBtn(bg, fg, bdr) {
 
 // ─── StatCard ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, accent }) {
+  // handle both raw numbers and pre-formatted BDT strings from API
+  const display = typeof value === 'string' && value.startsWith('৳') ? value : '৳' + fmt(value);
   return (
     <div style={{ ...card, borderLeft: '4px solid ' + accent, padding: '18px 20px' }}>
       <div style={{ fontSize: '12px', fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
-      <div style={{ fontSize: '26px', fontWeight: 800, color: accent, margin: '4px 0 0' }}>৳{fmt(value)}</div>
+      <div style={{ fontSize: '26px', fontWeight: 800, color: accent, margin: '4px 0 0' }}>{display}</div>
     </div>
   );
 }
@@ -74,11 +79,78 @@ function Modal({ title, onClose, children }) {
   );
 }
 
+// ─── ProductTable ─────────────────────────────────────────────────────────────
+function ProductTable({ products, loading, openEdit, onDelete }) {
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+      <thead>
+        <tr>
+          <th style={th}>Code</th><th style={th}>Name</th><th style={th}>Cost</th>
+          <th style={th}>Price</th><th style={th}>Margin</th><th style={th}></th>
+        </tr>
+      </thead>
+      <tbody>
+        {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
+        {!loading && products.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>No products. Click "+ Add Product".</td></tr>}
+        {products.map(p => {
+          const margin = p.salesPrice - p.costPrice;
+          return (
+            <tr key={p.id}>
+              <td style={td}><span style={{ background: brand + '15', color: brand, borderRadius: '6px', padding: '2px 8px', fontWeight: 700, fontSize: '11px' }}>{p.code}</span></td>
+              <td style={{ ...td, fontWeight: 600 }}>{p.name}</td>
+              <td style={td}>৳{fmt(p.costPrice)}</td>
+              <td style={{ ...td, fontWeight: 700 }}>৳{fmt(p.salesPrice)}</td>
+              <td style={td}><span style={{ color: margin >= 0 ? green : red, fontWeight: 700 }}>৳{fmt(margin)}</span></td>
+              <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                <button style={smBtn('#f1f5f9', textDk, border)} onClick={() => openEdit(p)}>Edit</button>
+                &nbsp;<button style={smBtn(red)} onClick={() => onDelete(p.id)}>Del</button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ─── SalesTable ───────────────────────────────────────────────────────────────
+function SalesTable({ sales, loading, openEdit, onDelete }) {
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+      <thead>
+        <tr>
+          <th style={th}>Date</th><th style={th}>Product</th><th style={th}>Qty</th>
+          <th style={th}>Revenue</th><th style={th}>Profit</th><th style={th}></th>
+        </tr>
+      </thead>
+      <tbody>
+        {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
+        {!loading && sales.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>No sales. Click "+ Record Sale".</td></tr>}
+        {sales.map(s => (
+          <tr key={s.id}>
+            <td style={td}>{s.date}</td>
+            <td style={td}><div style={{ fontWeight: 600 }}>{s.productName}</div><div style={{ fontSize: '11px', color: muted }}>{s.productCode}</div></td>
+            <td style={td}>{s.qty}</td>
+            <td style={{ ...td, fontWeight: 700 }}>{s.revenue}</td>
+            <td style={td}><span style={{ color: Number(String(s.profit).replace(/[^0-9.-]/g, '')) >= 0 ? green : red, fontWeight: 700 }}>{s.profit}</span></td>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>
+              <button style={smBtn('#f1f5f9', textDk, border)} onClick={() => openEdit(s)}>Edit</button>
+              &nbsp;<button style={smBtn(red)} onClick={() => onDelete(s.id)}>Del</button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  const [tab, setTab]           = useState('dashboard');
   const [products, setProducts] = useState([]);
   const [sales, setSales]       = useState([]);
   const [summary, setSummary]   = useState({ todayRevenue: 0, totalRevenue: 0, totalProfit: 0, monthRevenue: 0, monthProfit: 0 });
+  const [investment, setInvestment] = useState({ entries: [], summary: {} });
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
 
@@ -87,11 +159,17 @@ export default function App() {
 
   const [showPModal, setShowPModal] = useState(false);
   const [showSModal, setShowSModal] = useState(false);
+  const [showInvModal, setShowInvModal] = useState(false);
+  const [showWdrModal, setShowWdrModal] = useState(false);
 
   const emptyP = { code: '', name: '', costPrice: '', salesPrice: '' };
   const emptyS = () => ({ productCode: '', qty: '', date: new Date().toISOString().slice(0, 10) });
+  const emptyInv = () => ({ amount: '', date: TODAY, note: '' });
+  const emptyWdr = () => ({ amount: '', date: TODAY });
   const [pForm, setPForm] = useState(emptyP);
   const [sForm, setSForm] = useState(emptyS);
+  const [invForm, setInvForm] = useState(emptyInv());
+  const [wdrForm, setWdrForm] = useState(emptyWdr());
   const [editPId, setEditPId] = useState(null);
   const [editSId, setEditSId] = useState(null);
 
@@ -104,17 +182,19 @@ export default function App() {
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
-      const [pr, sr, smr] = await Promise.all([
+      const [pr, sr, smr, ir] = await Promise.all([
         api.get('/products'),
         api.get('/sales'),
         api.get('/summary?month=' + selMonth),
+        api.get('/investment'),
       ]);
       setProducts(pr.data || []);
       setSales(sr.data || []);
       setSummary(smr.data || {});
+      setInvestment(ir.data || { entries: [], summary: {} });
       setError('');
     } catch (e) {
-      setError((e.response && e.response.data && e.response.data.error) || 'Failed to load. Is the backend running on port 4000?');
+      setError((e.response && e.response.data && e.response.data.error) || 'Failed to load. Is the backend running?');
     } finally {
       setLoading(false);
     }
@@ -175,6 +255,23 @@ export default function App() {
     setEditSId(s.id); setShowSModal(true);
   };
 
+  // Investment / Withdrawal
+  const saveInvestment = async () => {
+    if (!invForm.amount || !invForm.date) return;
+    try {
+      await api.post('/investment', { type: 'investment', amount: Number(invForm.amount), date: invForm.date, note: invForm.note });
+      setShowInvModal(false); setInvForm(emptyInv()); await loadAll();
+    } catch (e) { setError((e.response && e.response.data && e.response.data.error) || 'Failed to save investment.'); }
+  };
+
+  const saveWithdrawal = async () => {
+    if (!wdrForm.amount || !wdrForm.date) return;
+    try {
+      await api.post('/investment', { type: 'withdrawal', amount: Number(wdrForm.amount), date: wdrForm.date });
+      setShowWdrModal(false); setWdrForm(emptyWdr()); await loadAll();
+    } catch (e) { setError((e.response && e.response.data && e.response.data.error) || 'Withdrawal failed — check available balance.'); }
+  };
+
   // Inline sale preview
   const salePreview = (() => {
     if (!sForm.productCode || !sForm.qty) return null;
@@ -188,14 +285,22 @@ export default function App() {
   })();
 
   const selMonthLabel = (monthOpts.find(o => o.val === selMonth) || {}).label || '';
+  const invSum = investment.summary || {};
 
   return (
     <div style={{ minHeight: '100vh', background: bgPage, fontFamily: "'Inter', system-ui, sans-serif", color: textDk }}>
 
       {/* NAV */}
-      <nav style={{ background: brand, padding: '0 28px', display: 'flex', alignItems: 'center', height: '62px', boxShadow: '0 3px 12px rgba(79,70,229,.4)' }}>
-        <span style={{ fontSize: '22px', fontWeight: 900, color: white, letterSpacing: '-.5px' }}>Jily Enterprise</span>
-        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,.7)', marginLeft: '14px', fontWeight: 500 }}>Sales Management System</span>
+      <nav style={{ background: brand, padding: '0 28px', display: 'flex', alignItems: 'center', height: '62px', boxShadow: '0 3px 12px rgba(79,70,229,.4)', gap: '0' }}>
+        <span style={{ fontSize: '22px', fontWeight: 900, color: white, letterSpacing: '-.5px', marginRight: '14px' }}>Jily Enterprise</span>
+        {/* Tab links */}
+        {[['dashboard','Dashboard'],['products','Products'],['sales','Sales'],['investment','Investment']].map(([key,lbl]) => (
+          <button key={key} onClick={() => setTab(key)} style={{
+            background: 'none', border: 'none', color: tab === key ? white : 'rgba(255,255,255,.65)',
+            fontWeight: tab === key ? 800 : 600, fontSize: '14px', cursor: 'pointer', padding: '0 16px',
+            height: '62px', borderBottom: tab === key ? '3px solid white' : '3px solid transparent',
+          }}>{lbl}</button>
+        ))}
         <button onClick={loadAll} style={{ marginLeft: 'auto', ...smBtn('rgba(255,255,255,.15)', white, null), padding: '8px 16px' }}>↻ Refresh</button>
       </nav>
 
@@ -208,120 +313,142 @@ export default function App() {
           </div>
         )}
 
-        {/* DASHBOARD HEADER ROW */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '18px', fontWeight: 800 }}>Dashboard</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '13px', color: muted, fontWeight: 600 }}>Month:</span>
-            <select
-              style={{ padding: '8px 14px', border: '1.5px solid ' + border, borderRadius: '10px', fontSize: '14px', background: white, outline: 'none', fontWeight: 600, cursor: 'pointer' }}
-              value={selMonth}
-              onChange={e => setSelMonth(e.target.value)}
-            >
-              {monthOpts.map(o => <option key={o.val} value={o.val}>{o.label}</option>)}
-            </select>
+        {/* ── DASHBOARD ─────────────────────────────────────────────────────── */}
+        {tab === 'dashboard' && (<>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '18px', fontWeight: 800 }}>Dashboard</span>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: muted, fontWeight: 600 }}>Month:</span>
+              <select
+                style={{ padding: '8px 14px', border: '1.5px solid ' + border, borderRadius: '10px', fontSize: '14px', background: white, outline: 'none', fontWeight: 600, cursor: 'pointer' }}
+                value={selMonth}
+                onChange={e => setSelMonth(e.target.value)}
+              >
+                {monthOpts.map(o => <option key={o.val} value={o.val}>{o.label}</option>)}
+              </select>
+            </div>
           </div>
-        </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '28px' }}>
+            <StatCard label="Today's Sales"             value={summary.todayRevenue}  accent={brand} />
+            <StatCard label={selMonthLabel + ' Sales'}  value={summary.monthRevenue}  accent={amber} />
+            <StatCard label={selMonthLabel + ' Profit'} value={summary.monthProfit}   accent={green} />
+            <StatCard label="Total Company Sales"       value={summary.totalRevenue}  accent={teal} />
+            <StatCard label="Total Profit / Loss"       value={summary.totalProfit}   accent={green} />
+          </div>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
+            <button style={btn(brand)} onClick={() => { setPForm(emptyP); setEditPId(null); setShowPModal(true); }}>＋ Add Product</button>
+            <button style={btn(green)} onClick={() => { setSForm(emptyS()); setEditSId(null); setShowSModal(true); }}>＋ Record Sale</button>
+            <button style={btn(amber)} onClick={() => { setShowInvModal(true); }}>💰 Add Investment</button>
+            <button style={btn('#92400e')} onClick={() => { setShowWdrModal(true); }}>💸 Akter Withdraw</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '20px' }}>
+            <ProductTable products={products} loading={loading} openEdit={(p) => { setPForm({ code: p.code, name: p.name, costPrice: p.costPrice, salesPrice: p.salesPrice }); setEditPId(p.id); setShowPModal(true); }} onDelete={async id => { if (!window.confirm('Delete this product?')) return; try { await api.delete('/products/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
+            <SalesTable sales={sales} loading={loading} openEdit={(s) => { setSForm({ productCode: s.productCode, qty: s.qty, date: s.date }); setEditSId(s.id); setShowSModal(true); }} onDelete={async id => { if (!window.confirm('Delete this sale?')) return; try { await api.delete('/sales/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
+          </div>
+        </>)}
 
-        {/* STAT CARDS */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '28px' }}>
-          <StatCard label="Today's Sales"               value={summary.todayRevenue}  accent={brand} />
-          <StatCard label={selMonthLabel + ' Sales'}    value={summary.monthRevenue}  accent={amber} />
-          <StatCard label={selMonthLabel + ' Profit'}   value={summary.monthProfit}   accent={summary.monthProfit >= 0 ? green : red} />
-          <StatCard label="Total Company Sales"         value={summary.totalRevenue}  accent={teal} />
-          <StatCard label="Total Profit / Loss"         value={summary.totalProfit}   accent={summary.totalProfit >= 0 ? green : red} />
-        </div>
-
-        {/* ACTION BUTTONS */}
-        <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
-          <button style={btn(brand)} onClick={() => { setPForm(emptyP); setEditPId(null); setShowPModal(true); }}>
-            ＋ Add Product
-          </button>
-          <button style={btn(green)} onClick={() => { setSForm(emptyS()); setEditSId(null); setShowSModal(true); }}>
-            ＋ Record Sale
-          </button>
-        </div>
-
-        {/* TABLES */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '20px' }}>
-
-          {/* PRODUCTS */}
+        {/* ── PRODUCTS ──────────────────────────────────────────────────────── */}
+        {tab === 'products' && (<>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
+            <span style={{ fontSize: '18px', fontWeight: 800 }}>Products ({products.length})</span>
+            <button style={{ ...btn(brand), marginLeft: 'auto' }} onClick={() => { setPForm(emptyP); setEditPId(null); setShowPModal(true); }}>＋ Add Product</button>
+          </div>
           <div style={card}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 750 }}>Products ({products.length})</h3>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
-              <thead>
-                <tr>
-                  <th style={th}>Code</th>
-                  <th style={th}>Name</th>
-                  <th style={th}>Cost</th>
-                  <th style={th}>Price</th>
-                  <th style={th}>Margin</th>
-                  <th style={th}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
-                {!loading && products.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>No products. Click "+ Add Product".</td></tr>}
-                {products.map(p => {
-                  const margin = p.salesPrice - p.costPrice;
-                  return (
-                    <tr key={p.id} style={{ transition: 'background .15s' }}>
-                      <td style={td}><span style={{ background: brand + '15', color: brand, borderRadius: '6px', padding: '2px 8px', fontWeight: 700, fontSize: '11px' }}>{p.code}</span></td>
-                      <td style={{ ...td, fontWeight: 600 }}>{p.name}</td>
-                      <td style={td}>৳{fmt(p.costPrice)}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>৳{fmt(p.salesPrice)}</td>
-                      <td style={td}><span style={{ color: margin >= 0 ? green : red, fontWeight: 700 }}>৳{fmt(margin)}</span></td>
-                      <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                        <button style={smBtn('#f1f5f9', textDk, border)} onClick={() => openEditProduct(p)}>Edit</button>
-                        &nbsp;
-                        <button style={smBtn(red)} onClick={() => deleteProduct(p.id)}>Del</button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <ProductTable products={products} loading={loading} openEdit={(p) => { setPForm({ code: p.code, name: p.name, costPrice: p.costPrice, salesPrice: p.salesPrice }); setEditPId(p.id); setShowPModal(true); }} onDelete={async id => { if (!window.confirm('Delete this product?')) return; try { await api.delete('/products/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
+          </div>
+        </>)}
+
+        {/* ── SALES ─────────────────────────────────────────────────────────── */}
+        {tab === 'sales' && (<>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
+            <span style={{ fontSize: '18px', fontWeight: 800 }}>Sales Entries ({sales.length})</span>
+            <button style={{ ...btn(green), marginLeft: 'auto' }} onClick={() => { setSForm(emptyS()); setEditSId(null); setShowSModal(true); }}>＋ Record Sale</button>
+          </div>
+          <div style={card}>
+            <SalesTable sales={sales} loading={loading} openEdit={(s) => { setSForm({ productCode: s.productCode, qty: s.qty, date: s.date }); setEditSId(s.id); setShowSModal(true); }} onDelete={async id => { if (!window.confirm('Delete this sale?')) return; try { await api.delete('/sales/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
+          </div>
+        </>)}
+
+        {/* ── INVESTMENT ────────────────────────────────────────────────────── */}
+        {tab === 'investment' && (<>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '18px', fontWeight: 800 }}>Investment & Profit Sharing</span>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              <button style={btn(brand)} onClick={() => { setInvForm(emptyInv()); setShowInvModal(true); }}>💰 Add Investment</button>
+              <button style={btn(amber)} onClick={() => { setWdrForm(emptyWdr()); setShowWdrModal(true); }}>💸 Akter Withdraw</button>
+            </div>
           </div>
 
-          {/* SALES */}
+          {/* Summary grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+            <StatCard label="Total Investment (Tokon)" value={invSum.totalInvestment  || '৳0.00'} accent={brand} />
+            <StatCard label="Total Sales Revenue"      value={invSum.totalRevenue     || '৳0.00'} accent={teal} />
+            <StatCard label="Net Profit / Loss"        value={invSum.netProfit        || '৳0.00'} accent={green} />
+            <StatCard label="Cash In Hand"             value={invSum.cashInHand       || '৳0.00'} accent={textDk} />
+          </div>
+
+          {/* Profit share */}
+          <h3 style={{ fontSize: '14px', fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '12px', marginTop: 0 }}>Profit Share (50 / 50)</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '20px' }}>
+            <div style={{ ...card, borderLeft: '4px solid ' + brand }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Tokon's Share</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: brand, margin: '4px 0 0' }}>{invSum.tokonsProfit || '৳0.00'}</div>
+            </div>
+            <div style={{ ...card, borderLeft: '4px solid ' + amber }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Akter's Share</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: amber, margin: '4px 0 0' }}>{invSum.aktersProfit || '৳0.00'}</div>
+            </div>
+          </div>
+
+          {/* Withdrawal tracker */}
+          <h3 style={{ fontSize: '14px', fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '12px', marginTop: 0 }}>Akter's Withdrawal Tracker</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '24px' }}>
+            <div style={{ ...card, borderLeft: '4px solid ' + red }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Total Withdrawn</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: red, margin: '4px 0 0' }}>{invSum.aktersWithdrawals || '৳0.00'}</div>
+            </div>
+            <div style={{ ...card, borderLeft: '4px solid ' + green }}>
+              <div style={{ fontSize: '12px', fontWeight: 700, color: muted, textTransform: 'uppercase', letterSpacing: '.06em' }}>Available Balance</div>
+              <div style={{ fontSize: '26px', fontWeight: 800, color: (invSum.aktersBalanceRaw || 0) < 0 ? red : green, margin: '4px 0 0' }}>{invSum.aktersBalance || '৳0.00'}</div>
+            </div>
+          </div>
+
+          {/* Transaction history */}
           <div style={card}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 750 }}>Sales Entries ({sales.length})</h3>
+            <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 750 }}>Transaction History ({(investment.entries || []).length})</h3>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
                 <tr>
                   <th style={th}>Date</th>
-                  <th style={th}>Product</th>
-                  <th style={th}>Qty</th>
-                  <th style={th}>Revenue</th>
-                  <th style={th}>Profit</th>
-                  <th style={th}></th>
+                  <th style={th}>Type</th>
+                  <th style={th}>Person</th>
+                  <th style={th}>Amount</th>
+                  <th style={th}>Note</th>
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
-                {!loading && sales.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>No sales. Click "+ Record Sale".</td></tr>}
-                {sales.map(s => (
-                  <tr key={s.id}>
-                    <td style={td}>{s.date}</td>
+                {loading && <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
+                {!loading && (investment.entries || []).length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: muted }}>No entries yet. Add an investment to get started.</td></tr>}
+                {[...(investment.entries || [])].reverse().map(e => (
+                  <tr key={e.id}>
+                    <td style={td}>{e.date}</td>
                     <td style={td}>
-                      <div style={{ fontWeight: 600 }}>{s.productName}</div>
-                      <div style={{ fontSize: '11px', color: muted }}>{s.productCode}</div>
+                      <span style={{ background: e.type === 'investment' ? brand + '15' : amber + '25', color: e.type === 'investment' ? brand : amber, borderRadius: '6px', padding: '2px 8px', fontWeight: 700, fontSize: '11px', textTransform: 'uppercase' }}>
+                        {e.type}
+                      </span>
                     </td>
-                    <td style={td}>{s.qty}</td>
-                    <td style={{ ...td, fontWeight: 700 }}>{s.revenue}</td>
-                    <td style={td}><span style={{ color: Number(String(s.profit).replace(/[^0-9.-]/g, '')) >= 0 ? green : red, fontWeight: 700 }}>{s.profit}</span></td>
-                    <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                      <button style={smBtn('#f1f5f9', textDk, border)} onClick={() => openEditSale(s)}>Edit</button>
-                      &nbsp;
-                      <button style={smBtn(red)} onClick={() => deleteSale(s.id)}>Del</button>
+                    <td style={{ ...td, fontWeight: 600 }}>{e.person}</td>
+                    <td style={{ ...td, fontWeight: 700, color: e.type === 'investment' ? brand : amber }}>
+                      {e.type === 'investment' ? '+' : '-'}৳{fmt(e.amount)}
                     </td>
+                    <td style={{ ...td, color: muted }}>{e.note || '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        </>)}
 
-        </div>
       </div>
 
       {/* ADD/EDIT PRODUCT MODAL */}
@@ -391,6 +518,50 @@ export default function App() {
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
             <button style={smBtn(white, textDk, border)} onClick={() => setShowSModal(false)}>Cancel</button>
             <button style={btn(green)} onClick={saveSale}>{editSId ? 'Update Sale' : 'Save Sale'}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ADD INVESTMENT MODAL */}
+      {showInvModal && (
+        <Modal title="Add Investment (Tokon)" onClose={() => setShowInvModal(false)}>
+          <div style={frmRow}>
+            <label style={lbl}>Amount (৳) *</label>
+            <input style={input} type="number" placeholder="0.00" value={invForm.amount} onChange={e => setInvForm({ ...invForm, amount: e.target.value })} />
+          </div>
+          <div style={frmRow}>
+            <label style={lbl}>Date *</label>
+            <input style={input} type="date" value={invForm.date} onChange={e => setInvForm({ ...invForm, date: e.target.value })} />
+          </div>
+          <div style={frmRow}>
+            <label style={lbl}>Note (optional)</label>
+            <input style={input} placeholder="e.g. Bought stock for March" value={invForm.note} onChange={e => setInvForm({ ...invForm, note: e.target.value })} />
+          </div>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+            <button style={smBtn(white, textDk, border)} onClick={() => setShowInvModal(false)}>Cancel</button>
+            <button style={btn(brand)} onClick={saveInvestment}>Save Investment</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* WITHDRAWAL MODAL */}
+      {showWdrModal && (
+        <Modal title="Akter Withdraw Profit" onClose={() => setShowWdrModal(false)}>
+          <div style={{ padding: '12px 14px', background: '#fffbeb', border: '1px solid ' + amber, borderRadius: '10px', marginBottom: '16px', fontSize: '13px' }}>
+            <div style={{ fontWeight: 700, color: amber }}>Available Balance: {invSum.aktersBalance || '৳0.00'}</div>
+            <div style={{ color: muted, marginTop: '4px' }}>Akter can only withdraw from his profit share, not the investment amount.</div>
+          </div>
+          <div style={frmRow}>
+            <label style={lbl}>Withdrawal Amount (৳) *</label>
+            <input style={input} type="number" placeholder="0.00" value={wdrForm.amount} onChange={e => setWdrForm({ ...wdrForm, amount: e.target.value })} />
+          </div>
+          <div style={frmRow}>
+            <label style={lbl}>Date *</label>
+            <input style={input} type="date" value={wdrForm.date} onChange={e => setWdrForm({ ...wdrForm, date: e.target.value })} />
+          </div>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+            <button style={smBtn(white, textDk, border)} onClick={() => setShowWdrModal(false)}>Cancel</button>
+            <button style={btn(amber)} onClick={saveWithdrawal}>Confirm Withdrawal</button>
           </div>
         </Modal>
       )}
