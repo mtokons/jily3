@@ -120,17 +120,18 @@ function SalesTable({ sales, loading, openEdit, onDelete }) {
       <thead>
         <tr>
           <th style={th}>Date</th><th style={th}>Product</th><th style={th}>Qty</th>
-          <th style={th}>Revenue</th><th style={th}>Profit</th><th style={th}></th>
+          <th style={th}>Discount</th><th style={th}>Revenue</th><th style={th}>Profit</th><th style={th}></th>
         </tr>
       </thead>
       <tbody>
-        {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
-        {!loading && sales.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: '30px', color: muted }}>No sales. Click "+ Record Sale".</td></tr>}
+        {loading && <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
+        {!loading && sales.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: muted }}>No sales. Click "+ Record Sale".</td></tr>}
         {sales.map(s => (
           <tr key={s.id}>
             <td style={td}>{s.date}</td>
             <td style={td}><div style={{ fontWeight: 600 }}>{s.productName}</div><div style={{ fontSize: '11px', color: muted }}>{s.productCode}</div></td>
             <td style={td}>{s.qty}</td>
+            <td style={{ ...td, color: red }}>{s.discountRaw > 0 ? s.discount : '—'}</td>
             <td style={{ ...td, fontWeight: 700 }}>{s.revenue}</td>
             <td style={td}><span style={{ color: Number(String(s.profit).replace(/[^0-9.-]/g, '')) >= 0 ? green : red, fontWeight: 700 }}>{s.profit}</span></td>
             <td style={{ ...td, whiteSpace: 'nowrap' }}>
@@ -151,6 +152,8 @@ export default function App() {
   const [sales, setSales]       = useState([]);
   const [summary, setSummary]   = useState({ todayRevenue: 0, totalRevenue: 0, totalProfit: 0, monthRevenue: 0, monthProfit: 0 });
   const [investment, setInvestment] = useState({ entries: [], summary: {} });
+  const [buys, setBuys]             = useState([]);
+  const [inventory, setInventory]   = useState({ items: [], summary: {} });
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
 
@@ -161,11 +164,14 @@ export default function App() {
   const [showSModal, setShowSModal] = useState(false);
   const [showInvModal, setShowInvModal] = useState(false);
   const [showWdrModal, setShowWdrModal] = useState(false);
+  const [showBuyModal, setShowBuyModal] = useState(false);
 
   const emptyP = { code: '', name: '', costPrice: '', salesPrice: '' };
-  const emptyS = () => ({ productCode: '', qty: '', date: new Date().toISOString().slice(0, 10) });
+  const emptyS = () => ({ productCode: '', qty: '', discount: '0', date: new Date().toISOString().slice(0, 10) });
   const emptyInv = () => ({ amount: '', date: TODAY, note: '' });
   const emptyWdr = () => ({ amount: '', date: TODAY });
+  const emptyBuy = () => ({ productCode: '', qty: '', costPrice: '', date: TODAY });
+  const [buyForm, setBuyForm] = useState(emptyBuy());
   const [pForm, setPForm] = useState(emptyP);
   const [sForm, setSForm] = useState(emptyS);
   const [invForm, setInvForm] = useState(emptyInv());
@@ -182,16 +188,20 @@ export default function App() {
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
-      const [pr, sr, smr, ir] = await Promise.all([
+      const [pr, sr, smr, ir, br, inv] = await Promise.all([
         api.get('/products'),
         api.get('/sales'),
         api.get('/summary?month=' + selMonth),
         api.get('/investment'),
+        api.get('/buys'),
+        api.get('/inventory'),
       ]);
       setProducts(pr.data || []);
       setSales(sr.data || []);
       setSummary(smr.data || {});
       setInvestment(ir.data || { entries: [], summary: {} });
+      setBuys(br.data || []);
+      setInventory(inv.data || { items: [], summary: {} });
       setError('');
     } catch (e) {
       setError((e.response && e.response.data && e.response.data.error) || 'Failed to load. Is the backend running?');
@@ -235,6 +245,7 @@ export default function App() {
       date: sForm.date,
       costPrice: prod ? prod.costPrice : 0,
       salesPrice: prod ? prod.salesPrice : 0,
+      discount: Number(sForm.discount) || 0,
     };
     try {
       if (editSId) await api.put('/sales/' + editSId, payload);
@@ -251,7 +262,7 @@ export default function App() {
   };
 
   const openEditSale = (s) => {
-    setSForm({ productCode: s.productCode, qty: s.qty, date: s.date });
+    setSForm({ productCode: s.productCode, qty: s.qty, discount: String(s.discountRaw || 0), date: s.date });
     setEditSId(s.id); setShowSModal(true);
   };
 
@@ -272,13 +283,31 @@ export default function App() {
     } catch (e) { setError((e.response && e.response.data && e.response.data.error) || 'Withdrawal failed — check available balance.'); }
   };
 
+  const saveBuy = async () => {
+    if (!buyForm.productCode || !buyForm.qty || !buyForm.date) return;
+    const prod = productMap[buyForm.productCode];
+    const cp = Number(buyForm.costPrice) || (prod ? prod.costPrice : 0);
+    const payload = {
+      productCode: buyForm.productCode,
+      productName: prod ? prod.name : '',
+      qty: Number(buyForm.qty),
+      costPrice: cp,
+      date: buyForm.date,
+    };
+    try {
+      await api.post('/buys', payload);
+      setShowBuyModal(false); setBuyForm(emptyBuy()); await loadAll();
+    } catch (e) { setError((e.response && e.response.data && e.response.data.error) || 'Purchase save failed.'); }
+  };
+
   // Inline sale preview
   const salePreview = (() => {
     if (!sForm.productCode || !sForm.qty) return null;
     const prod = productMap[sForm.productCode];
     if (!prod) return null;
     const q = Number(sForm.qty) || 0;
-    const rev = prod.salesPrice * q;
+    const d = Number(sForm.discount) || 0;
+    const rev = (prod.salesPrice * q) - d;
     const cost = prod.costPrice * q;
     const profit = rev - cost;
     return { rev, cost, profit };
@@ -286,6 +315,7 @@ export default function App() {
 
   const selMonthLabel = (monthOpts.find(o => o.val === selMonth) || {}).label || '';
   const invSum = investment.summary || {};
+  const invData = inventory || { items: [], summary: {} };
 
   return (
     <div style={{ minHeight: '100vh', background: bgPage, fontFamily: "'Inter', system-ui, sans-serif", color: textDk }}>
@@ -294,7 +324,7 @@ export default function App() {
       <nav style={{ background: brand, padding: '0 28px', display: 'flex', alignItems: 'center', height: '62px', boxShadow: '0 3px 12px rgba(79,70,229,.4)', gap: '0' }}>
         <span style={{ fontSize: '22px', fontWeight: 900, color: white, letterSpacing: '-.5px', marginRight: '14px' }}>Jily Enterprise</span>
         {/* Tab links */}
-        {[['dashboard','Dashboard'],['products','Products'],['sales','Sales'],['investment','Investment']].map(([key,lbl]) => (
+        {[['dashboard','Dashboard'],['products','Products'],['buy','Buy'],['inventory','Inventory'],['sales','Sales'],['investment','Investment']].map(([key,lbl]) => (
           <button key={key} onClick={() => setTab(key)} style={{
             background: 'none', border: 'none', color: tab === key ? white : 'rgba(255,255,255,.65)',
             fontWeight: tab === key ? 800 : 600, fontSize: '14px', cursor: 'pointer', padding: '0 16px',
@@ -343,7 +373,7 @@ export default function App() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: '20px' }}>
             <ProductTable products={products} loading={loading} openEdit={(p) => { setPForm({ code: p.code, name: p.name, costPrice: p.costPrice, salesPrice: p.salesPrice }); setEditPId(p.id); setShowPModal(true); }} onDelete={async id => { if (!window.confirm('Delete this product?')) return; try { await api.delete('/products/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
-            <SalesTable sales={sales} loading={loading} openEdit={(s) => { setSForm({ productCode: s.productCode, qty: s.qty, date: s.date }); setEditSId(s.id); setShowSModal(true); }} onDelete={async id => { if (!window.confirm('Delete this sale?')) return; try { await api.delete('/sales/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
+            <SalesTable sales={sales} loading={loading} openEdit={(s) => { setSForm({ productCode: s.productCode, qty: s.qty, discount: String(s.discountRaw||0), date: s.date }); setEditSId(s.id); setShowSModal(true); }} onDelete={async id => { if (!window.confirm('Delete this sale?')) return; try { await api.delete('/sales/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
           </div>
         </>)}
 
@@ -358,6 +388,47 @@ export default function App() {
           </div>
         </>)}
 
+        {/* ── INVENTORY ────────────────────────────────────────────────────── */}
+        {tab === 'inventory' && (() => {
+          const invSum2 = invData.summary || {};
+          return (<>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
+              <span style={{ fontSize: '18px', fontWeight: 800 }}>Inventory ({(invData.items || []).length} products)</span>
+              <button onClick={loadAll} style={{ ...smBtn('rgba(79,70,229,.1)', brand, null), marginLeft: 'auto', padding: '8px 16px' }}>↻ Refresh</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+              <StatCard label="Stock Cost Value"       value={invSum2.totalCostValue      || '৳0.00'} accent={'#7c3aed'} />
+              <StatCard label="Stock Sales Value"      value={invSum2.totalSalesValue     || '৳0.00'} accent={teal} />
+              <StatCard label="Potential Profit"       value={invSum2.totalPotentialProfit|| '৳0.00'} accent={green} />
+            </div>
+            <div style={card}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr>
+                    <th style={th}>Product</th><th style={th}>Bought</th><th style={th}>Sold</th>
+                    <th style={th}>Remaining</th><th style={th}>Cost Value</th><th style={th}>Sales Value</th><th style={th}>Pot. Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading && <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
+                  {!loading && (invData.items || []).length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: muted }}>No inventory data yet.</td></tr>}
+                  {(invData.items || []).map((item, i) => (
+                    <tr key={i}>
+                      <td style={td}><div style={{ fontWeight: 600 }}>{item.name}</div><div style={{ fontSize: '11px', color: muted }}>{item.code}</div></td>
+                      <td style={td}>{item.bought}</td>
+                      <td style={td}>{item.sold}</td>
+                      <td style={{ ...td, fontWeight: 800, color: item.remaining <= 0 ? red : item.remaining <= 5 ? amber : green }}>{item.remaining}</td>
+                      <td style={td}>{item.costValue}</td>
+                      <td style={{ ...td, fontWeight: 700 }}>{item.salesValue}</td>
+                      <td style={td}><span style={{ color: item.potentialProfitRaw >= 0 ? green : red, fontWeight: 700 }}>{item.potentialProfit}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>);
+        })()}
+
         {/* ── SALES ─────────────────────────────────────────────────────────── */}
         {tab === 'sales' && (<>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
@@ -365,7 +436,41 @@ export default function App() {
             <button style={{ ...btn(green), marginLeft: 'auto' }} onClick={() => { setSForm(emptyS()); setEditSId(null); setShowSModal(true); }}>＋ Record Sale</button>
           </div>
           <div style={card}>
-            <SalesTable sales={sales} loading={loading} openEdit={(s) => { setSForm({ productCode: s.productCode, qty: s.qty, date: s.date }); setEditSId(s.id); setShowSModal(true); }} onDelete={async id => { if (!window.confirm('Delete this sale?')) return; try { await api.delete('/sales/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
+            <SalesTable sales={sales} loading={loading} openEdit={(s) => { setSForm({ productCode: s.productCode, qty: s.qty, discount: String(s.discountRaw||0), date: s.date }); setEditSId(s.id); setShowSModal(true); }} onDelete={async id => { if (!window.confirm('Delete this sale?')) return; try { await api.delete('/sales/' + id); await loadAll(); } catch(e){setError('Delete failed.');} }} />
+          </div>
+        </>)}
+
+        {/* ── BUY ──────────────────────────────────────────────────────────── */}
+        {tab === 'buy' && (<>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
+            <span style={{ fontSize: '18px', fontWeight: 800 }}>Stock Purchases ({buys.length})</span>
+            <button style={{ ...btn('#7c3aed'), marginLeft: 'auto' }} onClick={() => { setBuyForm(emptyBuy()); setShowBuyModal(true); }}>＋ Record Purchase</button>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+            <StatCard label="Total Purchase Cost" value={buys.reduce((a, b) => a + b.totalCost, 0)} accent={'#7c3aed'} />
+          </div>
+          <div style={card}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr>
+                  <th style={th}>Date</th><th style={th}>Product</th><th style={th}>Qty</th>
+                  <th style={th}>Cost/Unit</th><th style={th}>Total Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: muted }}>Loading…</td></tr>}
+                {!loading && buys.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: muted }}>No purchases yet. Click "+ Record Purchase".</td></tr>}
+                {[...buys].reverse().map(b => (
+                  <tr key={b.id}>
+                    <td style={td}>{b.date}</td>
+                    <td style={td}><div style={{ fontWeight: 600 }}>{b.productName}</div><div style={{ fontSize: '11px', color: muted }}>{b.productCode}</div></td>
+                    <td style={td}>{b.qty}</td>
+                    <td style={td}>৳{fmt(b.costPrice)}</td>
+                    <td style={{ ...td, fontWeight: 700, color: '#7c3aed' }}>৳{fmt(b.totalCost)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>)}
 
@@ -382,6 +487,7 @@ export default function App() {
           {/* Summary grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
             <StatCard label="Total Investment (Tokon)" value={invSum.totalInvestment  || '৳0.00'} accent={brand} />
+            <StatCard label="Total Buy Cost"           value={invSum.totalBuyCost     || '৳0.00'} accent={'#7c3aed'} />
             <StatCard label="Total Sales Revenue"      value={invSum.totalRevenue     || '৳0.00'} accent={teal} />
             <StatCard label="Net Profit / Loss"        value={invSum.netProfit        || '৳0.00'} accent={green} />
             <StatCard label="Cash In Hand"             value={invSum.cashInHand       || '৳0.00'} accent={textDk} />
@@ -504,9 +610,13 @@ export default function App() {
               <input style={input} type="number" placeholder="0" value={sForm.qty} onChange={e => setSForm({ ...sForm, qty: e.target.value })} />
             </div>
             <div style={frmRow}>
-              <label style={lbl}>Date *</label>
-              <input style={input} type="date" value={sForm.date} onChange={e => setSForm({ ...sForm, date: e.target.value })} />
+              <label style={lbl}>Discount (৳)</label>
+              <input style={input} type="number" placeholder="0.00" value={sForm.discount} onChange={e => setSForm({ ...sForm, discount: e.target.value })} />
             </div>
+          </div>
+          <div style={frmRow}>
+            <label style={lbl}>Date *</label>
+            <input style={input} type="date" value={sForm.date} onChange={e => setSForm({ ...sForm, date: e.target.value })} />
           </div>
           {salePreview && (
             <div style={{ padding: '12px 14px', background: salePreview.profit >= 0 ? '#f0fdf4' : '#fef2f2', borderRadius: '10px', fontSize: '13px', fontWeight: 600, color: salePreview.profit >= 0 ? green : red, marginBottom: '8px' }}>
@@ -540,6 +650,47 @@ export default function App() {
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
             <button style={smBtn(white, textDk, border)} onClick={() => setShowInvModal(false)}>Cancel</button>
             <button style={btn(brand)} onClick={saveInvestment}>Save Investment</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* BUY MODAL */}
+      {showBuyModal && (
+        <Modal title="Record Stock Purchase" onClose={() => setShowBuyModal(false)}>
+          <div style={frmRow}>
+            <label style={lbl}>Select Product *</label>
+            <select style={{ ...input, cursor: 'pointer' }} value={buyForm.productCode} onChange={e => {
+              const prod = productMap[e.target.value];
+              setBuyForm({ ...buyForm, productCode: e.target.value, costPrice: prod ? String(prod.costPrice) : '' });
+            }}>
+              <option value="">— Choose a product —</option>
+              {products.map(p => (
+                <option key={p.code} value={p.code}>{p.code} — {p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={twoIn}>
+            <div style={frmRow}>
+              <label style={lbl}>Quantity *</label>
+              <input style={input} type="number" placeholder="0" value={buyForm.qty} onChange={e => setBuyForm({ ...buyForm, qty: e.target.value })} />
+            </div>
+            <div style={frmRow}>
+              <label style={lbl}>Cost Price/Unit *</label>
+              <input style={input} type="number" placeholder="0.00" value={buyForm.costPrice} onChange={e => setBuyForm({ ...buyForm, costPrice: e.target.value })} />
+            </div>
+          </div>
+          <div style={frmRow}>
+            <label style={lbl}>Date *</label>
+            <input style={input} type="date" value={buyForm.date} onChange={e => setBuyForm({ ...buyForm, date: e.target.value })} />
+          </div>
+          {buyForm.qty && buyForm.costPrice && (
+            <div style={{ padding: '10px 14px', background: '#f5f3ff', borderRadius: '10px', fontSize: '13px', fontWeight: 600, color: '#7c3aed', marginBottom: '8px' }}>
+              Total Cost: ৳{fmt(Number(buyForm.qty) * Number(buyForm.costPrice))}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+            <button style={smBtn(white, textDk, border)} onClick={() => setShowBuyModal(false)}>Cancel</button>
+            <button style={btn('#7c3aed')} onClick={saveBuy}>Save Purchase</button>
           </div>
         </Modal>
       )}

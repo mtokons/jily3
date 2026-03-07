@@ -63,6 +63,7 @@ const C = {
   red   : '#dc2626',
   amber : '#d97706',
   teal  : '#0891b2',
+  violet: '#7c3aed',
   white : '#ffffff',
   border: '#e2e8f0',
   muted : '#64748b',
@@ -125,6 +126,8 @@ export default function App() {
   const [sales, setSales]       = useState([]);
   const [summary, setSummary]   = useState({});
   const [investment, setInvestment] = useState({ entries: [], summary: {} });
+  const [buys, setBuys]             = useState([]);
+  const [inventory, setInventory]   = useState({ items: [], summary: {} });
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
 
@@ -138,7 +141,7 @@ export default function App() {
   const [editPId, setEditPId] = useState(null);
 
   // Sale form
-  const emptyS = () => ({ productCode: '', qty: '', date: getToday() });
+  const emptyS = () => ({ productCode: '', qty: '', discount: '0', date: getToday() });
   const [sForm, setSForm]   = useState(emptyS());
   const [sModal, setSModal] = useState(false);
   const [editSId, setEditSId] = useState(null);
@@ -146,10 +149,13 @@ export default function App() {
   // Investment forms
   const emptyInv = () => ({ amount: '', date: getToday(), note: '' });
   const emptyWdr = () => ({ amount: '', date: getToday() });
+  const emptyBuy = () => ({ productCode: '', qty: '', costPrice: '', date: getToday() });
   const [invModal, setInvModal] = useState(false);
   const [wdrModal, setWdrModal] = useState(false);
+  const [buyModal, setBuyModal] = useState(false);
   const [invForm, setInvForm]   = useState(emptyInv());
   const [wdrForm, setWdrForm]   = useState(emptyWdr());
+  const [buyForm, setBuyForm]   = useState(emptyBuy());
 
   const productMap = useMemo(() => {
     const m = {};
@@ -161,16 +167,20 @@ export default function App() {
   const loadAll = useCallback(async () => {
     try {
       setLoading(true);
-      const [pr, sr, smr, ir] = await Promise.all([
+      const [pr, sr, smr, ir, br, inv] = await Promise.all([
         api.get('/products'),
         api.get('/sales'),
         api.get('/summary?month=' + selMonth),
         api.get('/investment'),
+        api.get('/buys'),
+        api.get('/inventory'),
       ]);
       setProducts(pr.data || []);
       setSales(sr.data || []);
       setSummary(smr.data || {});
       setInvestment(ir.data || { entries: [], summary: {} });
+      setBuys(br.data || []);
+      setInventory(inv.data || { items: [], summary: {} });
       setError('');
     } catch (e) {
       setError('Cannot reach backend. Check API_BASE in App.js.\n(' + API_BASE + ')');
@@ -216,6 +226,7 @@ export default function App() {
       date: sForm.date,
       costPrice: prod ? prod.costPrice : 0,
       salesPrice: prod ? prod.salesPrice : 0,
+      discount: Number(sForm.discount) || 0,
     };
     try {
       if (editSId) await api.put('/sales/' + editSId, payload);
@@ -259,24 +270,44 @@ export default function App() {
     }
   };
 
+  const saveBuy = async () => {
+    if (!buyForm.productCode || !buyForm.qty || !buyForm.date) {
+      Alert.alert('Missing fields', 'Product, quantity and date are required.'); return;
+    }
+    const prod = productMap[buyForm.productCode];
+    const cp   = Number(buyForm.costPrice) || (prod ? prod.costPrice : 0);
+    const payload = {
+      productCode: buyForm.productCode,
+      productName: prod ? prod.name : '',
+      qty: Number(buyForm.qty),
+      costPrice: cp,
+      date: buyForm.date,
+    };
+    try {
+      await api.post('/buys', payload);
+      setBuyModal(false); setBuyForm(emptyBuy()); await loadAll();
+    } catch (e) { Alert.alert('Error', e.response?.data?.error || 'Purchase save failed.'); }
+  };
+
   // ── Sale preview ─────────────────────────────────────────────────────────
   const salePreview = useMemo(() => {
     if (!sForm.productCode || !sForm.qty) return null;
     const prod = productMap[sForm.productCode];
     if (!prod) return null;
     const q      = Number(sForm.qty) || 0;
-    const rev    = Number(String(prod.salesPrice).replace(/[^0-9.-]/g,'')) * q;
+    const d      = Number(sForm.discount) || 0;
+    const rev    = Number(String(prod.salesPrice).replace(/[^0-9.-]/g,'')) * q - d;
     const cost   = Number(String(prod.costPrice).replace(/[^0-9.-]/g,''))  * q;
     const profit = rev - cost;
     return { rev, cost, profit };
-  }, [sForm.productCode, sForm.qty, productMap]);
+  }, [sForm.productCode, sForm.qty, sForm.discount, productMap]);
 
   const selMonthLabel = (monthOpts.find(o => o.val === selMonth) || {}).label || '';
 
   // ── Render helpers ────────────────────────────────────────────────────────
   const renderTabBar = () => (
     <View style={s.tabBar}>
-      {[['dashboard','Dashboard'],['products','Products'],['sales','Sales'],['investment','Investment']].map(([key,lbl]) => (
+      {[['dashboard','Dashboard'],['products','Products'],['buy','Buy'],['inventory','Inventory'],['sales','Sales'],['investment','Investment']].map(([key,lbl]) => (
         <TouchableOpacity key={key} style={[s.tabBtn, tab === key && s.tabBtnActive]} onPress={() => setTab(key)}>
           <Text style={[s.tabBtnText, tab === key && s.tabBtnTextActive]}>{lbl}</Text>
         </TouchableOpacity>
@@ -431,6 +462,7 @@ export default function App() {
             {/* Summary Cards */}
             <Text style={[s.subTitle, { marginBottom: 8 }]}>Company Overview</Text>
             <StatCard label="Total Investment (Tokon)"  value={invSum.totalInvestment  || '৳0.00'} accent={C.brand} />
+            <StatCard label="Total Buy Cost"            value={invSum.totalBuyCost     || '৳0.00'} accent={C.violet} />
             <StatCard label="Total Sales Revenue"       value={invSum.totalRevenue     || '৳0.00'} accent={C.teal} />
             <StatCard label="Net Profit / Loss"         value={invSum.netProfit        || '৳0.00'} accent={isNeg(invSum.netProfit) ? C.red : C.green} />
             <StatCard label="Cash In Hand"              value={invSum.cashInHand       || '৳0.00'} accent={C.dark} />
@@ -495,6 +527,105 @@ export default function App() {
       </ScrollView>
     );
   };
+  // ─── BUY TAB ─────────────────────────────────────────────────────────────
+  const renderBuy = () => {
+    const totalBuyCost = buys.reduce((acc, b) => acc + b.totalCost, 0);
+    return (
+      <ScrollView contentContainerStyle={s.scrollContent}>
+        <Text style={s.pageTitle}>Stock Purchases ({buys.length})</Text>
+        {loading ? <ActivityIndicator size="large" color={C.violet} style={{ marginTop: 30 }} /> : (
+          <>
+            <TouchableOpacity
+              style={[s.addBtn, { backgroundColor: C.violet, borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginBottom: 16 }]}
+              onPress={() => { setBuyForm(emptyBuy()); setBuyModal(true); }}
+            >
+              <Text style={s.addBtnText}>＋ Record Purchase</Text>
+            </TouchableOpacity>
+            <StatCard label="Total Purchase Cost" value={BDT(totalBuyCost)} accent={C.violet} />
+            {buys.length === 0 ? (
+              <Text style={s.emptyText}>No purchases yet. Tap "+ Record Purchase".</Text>
+            ) : (
+              [...buys].reverse().map(b => (
+                <View key={b.id} style={[s.card, { borderLeftWidth: 4, borderLeftColor: C.violet }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.productName}>{b.productName}</Text>
+                      <Text style={[s.priceLabel, { marginTop: 2 }]}>{b.productCode}  ·  Qty: {b.qty}  ·  {b.date}</Text>
+                      <Text style={s.priceLabel}>Cost/Unit: {BDT(b.costPrice)}</Text>
+                    </View>
+                    <Text style={[s.statValue, { fontSize: 16, color: C.violet }]}>{BDT(b.totalCost)}</Text>
+                  </View>
+                </View>
+              ))
+            )}
+            <TouchableOpacity style={[s.refreshBtn, { marginTop: 8 }]} onPress={loadAll}>
+              <Text style={s.refreshBtnText}>↻  Refresh</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
+    );
+  };
+
+  const renderBuyModal = () => (
+    <Modal visible={buyModal} animationType="slide" transparent onRequestClose={() => setBuyModal(false)}>
+      <View style={s.modalOverlay}>
+        <View style={s.modalBox}>
+          <Text style={s.modalTitle}>Record Stock Purchase</Text>
+          <ScrollView>
+            <FieldRow label="Select Product *">
+              <View style={[s.input, { padding: 0 }]}>
+                <Picker
+                  selectedValue={buyForm.productCode}
+                  onValueChange={v => {
+                    const prod = productMap[v];
+                    setBuyForm({ ...buyForm, productCode: v, costPrice: prod ? String(prod.costPrice) : '' });
+                  }}
+                  style={{ color: C.dark }}
+                >
+                  <Picker.Item label="— Choose a product —" value="" />
+                  {products.map(p => (
+                    <Picker.Item key={p.code} label={`${p.code} — ${p.name}`} value={p.code} />
+                  ))}
+                </Picker>
+              </View>
+            </FieldRow>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <FieldRow label="Quantity *">
+                  <TextInput style={s.input} value={buyForm.qty} onChangeText={v => setBuyForm({ ...buyForm, qty: v })} keyboardType="numeric" placeholder="0" placeholderTextColor={C.muted} />
+                </FieldRow>
+              </View>
+              <View style={{ flex: 1 }}>
+                <FieldRow label="Cost Price/Unit *">
+                  <TextInput style={s.input} value={buyForm.costPrice} onChangeText={v => setBuyForm({ ...buyForm, costPrice: v })} keyboardType="numeric" placeholder="0.00" placeholderTextColor={C.muted} />
+                </FieldRow>
+              </View>
+            </View>
+            <FieldRow label="Date *">
+              <DateInput value={buyForm.date} onChange={v => setBuyForm({ ...buyForm, date: v })} />
+            </FieldRow>
+            {!!(buyForm.qty && buyForm.costPrice) && (
+              <View style={[s.previewBox, { backgroundColor: '#f5f3ff', borderColor: C.violet }]}>
+                <Text style={{ color: C.violet, fontWeight: '700', fontSize: 13 }}>
+                  Total Cost: {BDT(Number(buyForm.qty) * Number(buyForm.costPrice))}
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+          <View style={s.modalActions}>
+            <TouchableOpacity style={s.cancelBtn} onPress={() => setBuyModal(false)}>
+              <Text style={s.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.saveBtn, { backgroundColor: C.violet }]} onPress={saveBuy}>
+              <Text style={s.saveBtnText}>Save Purchase</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // ─── PRODUCT MODAL ───────────────────────────────────────────────────────
   const renderProductModal = () => (
     <Modal visible={pModal} animationType="slide" transparent onRequestClose={() => setPModal(false)}>
@@ -569,11 +700,14 @@ export default function App() {
                 </FieldRow>
               </View>
               <View style={{ flex: 1 }}>
-                <FieldRow label="Date *">
-                  <DateInput value={sForm.date} onChange={v => setSForm({ ...sForm, date: v })} />
+                <FieldRow label="Discount (৳)">
+                  <TextInput style={s.input} value={sForm.discount} onChangeText={v => setSForm({ ...sForm, discount: v })} keyboardType="numeric" placeholder="0.00" placeholderTextColor={C.muted} />
                 </FieldRow>
               </View>
             </View>
+            <FieldRow label="Date *">
+              <DateInput value={sForm.date} onChange={v => setSForm({ ...sForm, date: v })} />
+            </FieldRow>
             {salePreview && (
               <View style={[s.previewBox, { backgroundColor: salePreview.profit >= 0 ? '#f0fdf4' : '#fef2f2', borderColor: salePreview.profit >= 0 ? C.green : C.red }]}>
                 <Text style={{ color: salePreview.profit >= 0 ? C.green : C.red, fontWeight: '700', fontSize: 13 }}>
@@ -659,7 +793,52 @@ export default function App() {
       </View>
     </Modal>
   );
-
+  // ─── INVENTORY TAB ──────────────────────────────────────────────────────────────
+  const renderInventory = () => {
+    const invSum2 = inventory.summary || {};
+    return (
+      <ScrollView contentContainerStyle={s.scrollContent}>
+        <Text style={s.pageTitle}>Inventory ({(inventory.items || []).length} products)</Text>
+        {loading ? <ActivityIndicator size="large" color={C.violet} style={{ marginTop: 30 }} /> : (
+          <>
+            <StatCard label="Stock Cost Value"       value={invSum2.totalCostValue       || '৳0.00'} accent={C.violet} />
+            <StatCard label="Stock Sales Value"      value={invSum2.totalSalesValue      || '৳0.00'} accent={C.teal} />
+            <StatCard label="Potential Profit"       value={invSum2.totalPotentialProfit || '৳0.00'} accent={C.green} />
+            {(inventory.items || []).length === 0 ? (
+              <Text style={s.emptyText}>No inventory data yet. Add purchases in the Buy tab.</Text>
+            ) : (
+              (inventory.items || []).map((item, i) => (
+                <View key={i} style={[s.card, { borderLeftWidth: 4, borderLeftColor: item.remaining <= 0 ? C.red : item.remaining <= 5 ? C.amber : C.green }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.productName}>{item.name}</Text>
+                      <Text style={[s.priceLabel, { marginTop: 2, marginBottom: 6 }]}>{item.code}</Text>
+                      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                        <Text style={s.priceLabel}>Bought: <Text style={s.priceVal}>{item.bought}</Text></Text>
+                        <Text style={s.priceLabel}>Sold: <Text style={s.priceVal}>{item.sold}</Text></Text>
+                        <Text style={s.priceLabel}>Stock: <Text style={[s.priceVal, { color: item.remaining <= 0 ? C.red : item.remaining <= 5 ? C.amber : C.green }]}>{item.remaining}</Text></Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+                        <Text style={s.priceLabel}>Cost Val: <Text style={s.priceVal}>{item.costValue}</Text></Text>
+                        <Text style={s.priceLabel}>Sales Val: <Text style={s.priceVal}>{item.salesValue}</Text></Text>
+                      </View>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 10, color: C.muted, marginBottom: 2 }}>Pot. Profit</Text>
+                      <Text style={[s.statValue, { fontSize: 14, color: item.potentialProfitRaw >= 0 ? C.green : C.red }]}>{item.potentialProfit}</Text>
+                    </View>
+                  </View>
+                </View>
+              ))
+            )}
+            <TouchableOpacity style={[s.refreshBtn, { marginTop: 8 }]} onPress={loadAll}>
+              <Text style={s.refreshBtnText}>↻  Refresh</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
+    );
+  };
   // ─── Root ─────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={s.root}>
@@ -683,6 +862,8 @@ export default function App() {
       <View style={{ flex: 1, backgroundColor: C.bgPage }}>
         {tab === 'dashboard'  && renderDashboard()}
         {tab === 'products'   && renderProducts()}
+        {tab === 'buy'        && renderBuy()}
+        {tab === 'inventory'  && renderInventory()}
         {tab === 'sales'      && renderSales()}
         {tab === 'investment' && renderInvestment()}
       </View>
@@ -693,6 +874,7 @@ export default function App() {
       {/* Modals */}
       {renderProductModal()}
       {renderSaleModal()}
+      {renderBuyModal()}
       {renderInvestmentModal()}
       {renderWithdrawalModal()}
     </SafeAreaView>

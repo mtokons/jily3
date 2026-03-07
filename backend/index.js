@@ -33,8 +33,9 @@ const auth = new google.auth.GoogleAuth({
 const sheets = google.sheets({ version: 'v4', auth });
 
 const PRODUCT_HEADERS    = ['Code', 'Name', 'Cost Price', 'Sales Price'];
-const SALES_HEADERS      = ['Product Code', 'Product Name', 'Qty', 'Date', 'Cost Price', 'Sales Price', 'Revenue', 'Total Cost', 'Profit'];
+const SALES_HEADERS      = ['Product Code', 'Product Name', 'Qty', 'Date', 'Cost Price', 'Sales Price', 'Discount', 'Revenue', 'Total Cost', 'Profit'];
 const INVESTMENT_HEADERS = ['Type', 'Person', 'Amount', 'Date', 'Note'];
+const BUY_HEADERS        = ['Product Code', 'Product Name', 'Qty', 'Cost Price', 'Total Cost', 'Date'];
 
 // Returns data rows only (skips row 1 = header)
 async function getDataRows(range) {
@@ -69,6 +70,7 @@ async function ensureSheetsExist() {
   if (!existing.includes('Products'))   requests.push({ addSheet: { properties: { title: 'Products' } } });
   if (!existing.includes('Sales'))      requests.push({ addSheet: { properties: { title: 'Sales' } } });
   if (!existing.includes('Investment')) requests.push({ addSheet: { properties: { title: 'Investment' } } });
+  if (!existing.includes('Buy'))        requests.push({ addSheet: { properties: { title: 'Buy' } } });
   if (requests.length > 0) {
     await sheets.spreadsheets.batchUpdate({ spreadsheetId: SHEET_ID, requestBody: { requests } });
   }
@@ -77,13 +79,17 @@ async function ensureSheetsExist() {
   if (!pRow.data.values || pRow.data.values[0][0] !== 'Code') {
     await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: 'Products!A1', valueInputOption: 'USER_ENTERED', requestBody: { values: [PRODUCT_HEADERS] } });
   }
-  const sRow = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Sales!A1:I1' });
-  if (!sRow.data.values || sRow.data.values[0][0] !== 'Product Code') {
+  const sRow = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Sales!A1:J1' });
+  if (!sRow.data.values || sRow.data.values[0][0] !== 'Product Code' || !(sRow.data.values[0] || []).includes('Discount')) {
     await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: 'Sales!A1', valueInputOption: 'USER_ENTERED', requestBody: { values: [SALES_HEADERS] } });
   }
   const iRow = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Investment!A1:E1' });
   if (!iRow.data.values || iRow.data.values[0][0] !== 'Type') {
     await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: 'Investment!A1', valueInputOption: 'USER_ENTERED', requestBody: { values: [INVESTMENT_HEADERS] } });
+  }
+  const bRow = await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: 'Buy!A1:F1' });
+  if (!bRow.data.values || bRow.data.values[0][0] !== 'Product Code') {
+    await sheets.spreadsheets.values.update({ spreadsheetId: SHEET_ID, range: 'Buy!A1', valueInputOption: 'USER_ENTERED', requestBody: { values: [BUY_HEADERS] } });
   }
 }
 
@@ -139,79 +145,82 @@ app.delete('/products/:id', async (req, res) => {
 
 app.get('/sales', async (req, res) => {
   try {
-    const rows = await getDataRows('Sales!A:I');
-    // Format currency fields as BDT
+    const rows = await getDataRows('Sales!A:J');
     const formatBDT = v => `৳${Number(v).toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    res.json(rows.map((r, i) => ({
-      id: i + 1,
-      productCode: r[0] || '',
-      productName: r[1] || '',
-      qty: Number(r[2]) || 0,
-      date: r[3] || '',
-      costPrice: formatBDT(r[4]),
-      salesPrice: formatBDT(r[5]),
-      revenue: formatBDT(r[6]),
-      totalCost: formatBDT(r[7]),
-      profit: formatBDT(r[8]),
-    })));
+    res.json(rows.map((r, i) => {
+      const has = r.length >= 10;
+      const discount  = has ? Number(r[6]) || 0 : 0;
+      const revenue   = has ? Number(r[7]) || 0 : Number(r[6]) || 0;
+      const totalCost = has ? Number(r[8]) || 0 : Number(r[7]) || 0;
+      const profit    = has ? Number(r[9]) || 0 : Number(r[8]) || 0;
+      return {
+        id: i + 1,
+        productCode: r[0] || '',
+        productName: r[1] || '',
+        qty: Number(r[2]) || 0,
+        date: r[3] || '',
+        costPrice:   formatBDT(r[4]),
+        salesPrice:  formatBDT(r[5]),
+        discount:    formatBDT(discount),
+        discountRaw: discount,
+        revenue:     formatBDT(revenue),
+        totalCost:   formatBDT(totalCost),
+        profit:      formatBDT(profit),
+      };
+    }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/sales', async (req, res) => {
-  const { productCode, productName, qty, date, costPrice, salesPrice } = req.body;
+  const { productCode, productName, qty, date, costPrice, salesPrice, discount } = req.body;
   if (!productCode || !qty || !date)
     return res.status(400).json({ error: 'productCode, qty, date required.' });
-  const q = Number(qty);
+  const q  = Number(qty);
   const cp = Number(costPrice) || 0;
   const sp = Number(salesPrice) || 0;
-  const revenue = sp * q;
+  const d  = Number(discount) || 0;
+  const revenue   = (sp * q) - d;
   const totalCost = cp * q;
-  const profit = revenue - totalCost;
+  const profit    = revenue - totalCost;
   try {
-    await appendRow('Sales!A:I', [productCode, productName || '', q, date, cp, sp, revenue, totalCost, profit]);
-    // Format currency fields as BDT
+    await appendRow('Sales!A:J', [productCode, productName || '', q, date, cp, sp, d, revenue, totalCost, profit]);
     const formatBDT = v => `৳${Number(v).toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     res.json({
-      productCode,
-      productName,
-      qty: q,
-      date,
-      costPrice: formatBDT(cp),
-      salesPrice: formatBDT(sp),
-      revenue: formatBDT(revenue),
-      totalCost: formatBDT(totalCost),
-      profit: formatBDT(profit)
+      productCode, productName, qty: q, date,
+      costPrice:   formatBDT(cp),
+      salesPrice:  formatBDT(sp),
+      discount:    formatBDT(d),
+      revenue:     formatBDT(revenue),
+      totalCost:   formatBDT(totalCost),
+      profit:      formatBDT(profit),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.put('/sales/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { productCode, productName, qty, date, costPrice, salesPrice } = req.body;
-  const q = Number(qty);
+  const { productCode, productName, qty, date, costPrice, salesPrice, discount } = req.body;
+  const q  = Number(qty);
   const cp = Number(costPrice) || 0;
   const sp = Number(salesPrice) || 0;
-  const revenue = sp * q;
+  const d  = Number(discount) || 0;
+  const revenue   = (sp * q) - d;
   const totalCost = cp * q;
-  const profit = revenue - totalCost;
+  const profit    = revenue - totalCost;
   try {
-    const rows = await getDataRows('Sales!A:I');
+    const rows = await getDataRows('Sales!A:J');
     if (id < 1 || id > rows.length) return res.status(404).json({ error: 'Not found.' });
-    rows[id - 1] = [productCode, productName || '', q, date, cp, sp, revenue, totalCost, profit];
+    rows[id - 1] = [productCode, productName || '', q, date, cp, sp, d, revenue, totalCost, profit];
     await overwriteDataRows('Sales', SALES_HEADERS, rows);
-    // Format currency fields as BDT
     const formatBDT = v => `৳${Number(v).toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     res.json({
-      id,
-      productCode,
-      productName,
-      qty: q,
-      date,
-      costPrice: formatBDT(cp),
-      salesPrice: formatBDT(sp),
-      revenue: formatBDT(revenue),
-      totalCost: formatBDT(totalCost),
-      profit: formatBDT(profit)
+      id, productCode, productName, qty: q, date,
+      costPrice:   formatBDT(cp),
+      salesPrice:  formatBDT(sp),
+      discount:    formatBDT(d),
+      revenue:     formatBDT(revenue),
+      totalCost:   formatBDT(totalCost),
+      profit:      formatBDT(profit),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -219,7 +228,7 @@ app.put('/sales/:id', async (req, res) => {
 app.delete('/sales/:id', async (req, res) => {
   const id = Number(req.params.id);
   try {
-    const rows = await getDataRows('Sales!A:I');
+    const rows = await getDataRows('Sales!A:J');
     if (id < 1 || id > rows.length) return res.status(404).json({ error: 'Not found.' });
     rows.splice(id - 1, 1);
     await overwriteDataRows('Sales', SALES_HEADERS, rows);
@@ -231,11 +240,11 @@ app.delete('/sales/:id', async (req, res) => {
 
 app.get('/summary', async (req, res) => {
   try {
-    const rows = await getDataRows('Sales!A:I');
+    const rows = await getDataRows('Sales!A:J');
     const sales = rows.map(r => ({
       date: r[3] || '',
-      revenue: Number(r[6]) || 0,
-      profit: Number(r[8]) || 0,
+      revenue: r.length >= 10 ? Number(r[7]) || 0 : Number(r[6]) || 0,
+      profit:  r.length >= 10 ? Number(r[9]) || 0 : Number(r[8]) || 0,
     }));
     const today = new Date().toISOString().slice(0, 10);
     const todayRevenue  = sales.filter(s => s.date === today).reduce((a, s) => a + s.revenue, 0);
@@ -259,20 +268,24 @@ app.get('/summary', async (req, res) => {
 // ─── INVESTMENT ───────────────────────────────────────────────────────────────
 
 async function getInvestmentSummary() {
-  const [invRows, salesRows] = await Promise.all([
+  const [invRows, salesRows, buyRows] = await Promise.all([
     getDataRows('Investment!A:E'),
-    getDataRows('Sales!A:I'),
+    getDataRows('Sales!A:J'),
+    getDataRows('Buy!A:F'),
   ]);
   const totalInvestment  = invRows.filter(r => r[0] === 'investment').reduce((a, r) => a + (Number(r[2]) || 0), 0);
   const totalWithdrawals = invRows.filter(r => r[0] === 'withdrawal').reduce((a, r) => a + (Number(r[2]) || 0), 0);
-  const totalRevenue     = salesRows.reduce((a, r) => a + (Number(r[6]) || 0), 0);
-  const totalCOGS        = salesRows.reduce((a, r) => a + (Number(r[7]) || 0), 0);
-  const netProfit        = totalRevenue - totalCOGS;
+  const totalRevenue     = salesRows.reduce((a, r) => {
+    const rev = r.length >= 10 ? Number(r[7]) || 0 : Number(r[6]) || 0;
+    return a + rev;
+  }, 0);
+  const totalBuyCost     = buyRows.reduce((a, r) => a + (Number(r[4]) || 0), 0);
+  const netProfit        = totalRevenue - totalBuyCost;
   const aktersProfit     = netProfit * 0.5;
   const tokonsProfit     = netProfit * 0.5;
   const aktersBalance    = aktersProfit - totalWithdrawals;
-  const cashInHand       = totalInvestment + netProfit - totalWithdrawals;
-  return { totalInvestment, totalWithdrawals, totalRevenue, totalCOGS, netProfit, aktersProfit, tokonsProfit, aktersBalance, cashInHand };
+  const cashInHand       = totalInvestment - totalBuyCost + totalRevenue - totalWithdrawals;
+  return { totalInvestment, totalWithdrawals, totalRevenue, totalBuyCost, netProfit, aktersProfit, tokonsProfit, aktersBalance, cashInHand };
 }
 
 app.get('/investment', async (req, res) => {
@@ -294,8 +307,8 @@ app.get('/investment', async (req, res) => {
       entries,
       summary: {
         totalInvestment:   formatBDT(summary.totalInvestment),
+        totalBuyCost:      formatBDT(summary.totalBuyCost),
         totalRevenue:      formatBDT(summary.totalRevenue),
-        totalCOGS:         formatBDT(summary.totalCOGS),
         netProfit:         formatBDT(summary.netProfit),
         aktersProfit:      formatBDT(summary.aktersProfit),
         tokonsProfit:      formatBDT(summary.tokonsProfit),
@@ -329,6 +342,92 @@ app.post('/investment', async (req, res) => {
     const person = type === 'investment' ? 'Tokon' : 'Akter';
     await appendRow('Investment!A:E', [type, person, amt, date, note || '']);
     res.json({ type, person, amount: amt, date, note: note || '' });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── INVENTORY ───────────────────────────────────────────────────────────────
+
+app.get('/inventory', async (req, res) => {
+  try {
+    const [productRows, buyRows, salesRows] = await Promise.all([
+      getDataRows('Products!A:D'),
+      getDataRows('Buy!A:F'),
+      getDataRows('Sales!A:J'),
+    ]);
+    const productMap = {};
+    productRows.forEach(r => {
+      if (r[0]) productMap[r[0]] = { code: r[0], name: r[1] || '', costPrice: Number(r[2]) || 0, salesPrice: Number(r[3]) || 0 };
+    });
+    const bought = {};
+    buyRows.forEach(r => { if (r[0]) bought[r[0]] = (bought[r[0]] || 0) + (Number(r[2]) || 0); });
+    const soldMap = {};
+    salesRows.forEach(r => { if (r[0]) soldMap[r[0]] = (soldMap[r[0]] || 0) + (Number(r[2]) || 0); });
+    const allCodes = new Set([...Object.keys(bought), ...Object.keys(soldMap)]);
+    const formatBDT = v => `৳${Number(v).toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const items = Array.from(allCodes).map(code => {
+      const p           = productMap[code] || { code, name: '', costPrice: 0, salesPrice: 0 };
+      const boughtQty   = bought[code]  || 0;
+      const soldQty     = soldMap[code] || 0;
+      const remaining   = boughtQty - soldQty;
+      const costValue   = remaining * p.costPrice;
+      const salesValue  = remaining * p.salesPrice;
+      const potProfit   = salesValue - costValue;
+      return {
+        code: p.code, name: p.name,
+        bought: boughtQty, sold: soldQty, remaining,
+        costPrice: p.costPrice, salesPrice: p.salesPrice,
+        costValue:          formatBDT(costValue),
+        salesValue:         formatBDT(salesValue),
+        potentialProfit:    formatBDT(potProfit),
+        potentialProfitRaw: potProfit,
+      };
+    }).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+    const totalCostValue  = Array.from(allCodes).reduce((a, code) => {
+      const p = productMap[code] || { costPrice: 0 };
+      return a + ((bought[code] || 0) - (soldMap[code] || 0)) * p.costPrice;
+    }, 0);
+    const totalSalesValue = Array.from(allCodes).reduce((a, code) => {
+      const p = productMap[code] || { salesPrice: 0 };
+      return a + ((bought[code] || 0) - (soldMap[code] || 0)) * p.salesPrice;
+    }, 0);
+    res.json({
+      items,
+      summary: {
+        totalCostValue:       formatBDT(totalCostValue),
+        totalSalesValue:      formatBDT(totalSalesValue),
+        totalPotentialProfit: formatBDT(totalSalesValue - totalCostValue),
+      },
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── BUYS ────────────────────────────────────────────────────────────────────
+
+app.get('/buys', async (req, res) => {
+  try {
+    const rows = await getDataRows('Buy!A:F');
+    res.json(rows.map((r, i) => ({
+      id: i + 1,
+      productCode: r[0] || '',
+      productName: r[1] || '',
+      qty: Number(r[2]) || 0,
+      costPrice: Number(r[3]) || 0,
+      totalCost: Number(r[4]) || 0,
+      date: r[5] || '',
+    })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/buys', async (req, res) => {
+  const { productCode, productName, qty, costPrice, date } = req.body;
+  if (!productCode || !qty || !date)
+    return res.status(400).json({ error: 'productCode, qty, date required.' });
+  const q         = Number(qty);
+  const cp        = Number(costPrice) || 0;
+  const totalCost = cp * q;
+  try {
+    await appendRow('Buy!A:F', [productCode, productName || '', q, cp, totalCost, date]);
+    res.json({ productCode, productName: productName || '', qty: q, costPrice: cp, totalCost, date });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
