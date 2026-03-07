@@ -18,6 +18,7 @@
     "build": "webpack --mode production"
   },
   "devDependencies": {
+    "html-webpack-plugin": "^5.6.6",
     "webpack-dev-server": "^5.2.3"
   }
 }
