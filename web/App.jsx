@@ -5,7 +5,18 @@ const API_BASE = typeof window !== 'undefined' && window.location.hostname === '
   ? 'http://localhost:4000'
   : 'https://jily3.onrender.com';
 const api = axios.create({ baseURL: API_BASE });
-const TODAY = new Date().toISOString().slice(0, 10);
+const toLocalDateKey = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+const toLocalMonthKey = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+};
+const TODAY = toLocalDateKey(new Date());
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (n) =>
@@ -16,7 +27,7 @@ function getMonthOptions() {
   const now = new Date();
   for (let i = 0; i < 12; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const val = d.toISOString().slice(0, 7);
+    const val = toLocalMonthKey(d);
     const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
     opts.push({ val, label });
   }
@@ -158,8 +169,9 @@ export default function App() {
   const [error, setError]       = useState('');
 
   const monthOpts = useMemo(() => getMonthOptions(), []);
-  const [selMonth, setSelMonth] = useState(monthOpts[0].val);
-  const [invSelMonth, setInvSelMonth] = useState(monthOpts[0].val);
+  const currentMonth = toLocalMonthKey(new Date());
+  const [selMonth, setSelMonth] = useState(currentMonth);
+  const [invSelMonth, setInvSelMonth] = useState(currentMonth);
 
   const [showPModal, setShowPModal] = useState(false);
   const [showSModal, setShowSModal] = useState(false);
@@ -168,7 +180,7 @@ export default function App() {
   const [showBuyModal, setShowBuyModal] = useState(false);
 
   const emptyP = { code: '', name: '', costPrice: '', salesPrice: '' };
-  const emptyS = () => ({ productCode: '', qty: '', discount: '0', date: new Date().toISOString().slice(0, 10) });
+  const emptyS = () => ({ productCode: '', qty: '', discount: '0', date: toLocalDateKey(new Date()) });
   const emptyInv = () => ({ amount: '', date: TODAY, note: '' });
   const emptyWdr = () => ({ amount: '', date: TODAY });
   const emptyBuy = () => ({ productCode: '', qty: '', costPrice: '', date: TODAY });

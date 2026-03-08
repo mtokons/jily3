@@ -30,7 +30,18 @@ import axios from 'axios';
 // For emulator: use http://10.0.2.2:4000
 const API_BASE = 'https://jily3.onrender.com';
 const api      = axios.create({ baseURL: API_BASE, timeout: 30000 });
-const getToday = () => new Date().toISOString().slice(0, 10);
+const toLocalDateKey = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+const toLocalMonthKey = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+};
+const getToday = () => toLocalDateKey(new Date());
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmtNum = (n) =>
@@ -49,7 +60,7 @@ function getMonthOptions() {
   const now = new Date();
   for (let i = 0; i < 12; i++) {
     const d   = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const val = d.toISOString().slice(0, 7);
+    const val = toLocalMonthKey(d);
     const label = d.toLocaleString('default', { month: 'long', year: 'numeric' });
     opts.push({ val, label });
   }
@@ -132,8 +143,9 @@ export default function App() {
   const [error, setError]       = useState('');
 
   const monthOpts = useMemo(() => getMonthOptions(), []);
-  const [selMonth, setSelMonth] = useState(monthOpts[0].val);
-  const [invSelMonth, setInvSelMonth] = useState(monthOpts[0].val);
+  const currentMonth = toLocalMonthKey(new Date());
+  const [selMonth, setSelMonth] = useState(currentMonth);
+  const [invSelMonth, setInvSelMonth] = useState(currentMonth);
 
   // Product form
   const emptyP = { code: '', name: '', costPrice: '', salesPrice: '' };
