@@ -164,8 +164,10 @@ app.get('/sales', async (req, res) => {
         discount:    formatBDT(discount),
         discountRaw: discount,
         revenue:     formatBDT(revenue),
+        revenueRaw:  revenue,
         totalCost:   formatBDT(totalCost),
         profit:      formatBDT(profit),
+        profitRaw:   profit,
       };
     }));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -251,16 +253,17 @@ app.get('/summary', async (req, res) => {
     const totalRevenue  = sales.reduce((a, s) => a + s.revenue, 0);
     const totalProfit   = sales.reduce((a, s) => a + s.profit, 0);
     const { month } = req.query;
-    const monthRevenue  = month ? sales.filter(s => s.date && s.date.slice(0, 7) === month).reduce((a, s) => a + s.revenue, 0) : 0;
-    const monthProfit   = month ? sales.filter(s => s.date && s.date.slice(0, 7) === month).reduce((a, s) => a + s.profit, 0) : 0;
+    const selM = month || new Date().toISOString().slice(0, 7);
+    const monthRevenue  = sales.filter(s => s.date && s.date.slice(0, 7) === selM).reduce((a, s) => a + s.revenue, 0);
+    const monthProfit   = sales.filter(s => s.date && s.date.slice(0, 7) === selM).reduce((a, s) => a + s.profit, 0);
     // Format all currency values as BDT
     const formatBDT = v => `৳${Number(v).toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     res.json({
       todayRevenue: formatBDT(todayRevenue),
       totalRevenue: formatBDT(totalRevenue),
-      totalProfit: formatBDT(totalProfit),
+      totalProfit:  formatBDT(totalProfit),
       monthRevenue: formatBDT(monthRevenue),
-      monthProfit: formatBDT(monthProfit)
+      monthProfit:  formatBDT(monthProfit),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -321,20 +324,20 @@ app.get('/investment', async (req, res) => {
     res.json({
       entries,
       summary: {
-        totalInvestment:   formatBDT(summary.totalInvestment),
-        totalBuyCost:      formatBDT(summary.totalBuyCost),
-        totalRevenue:      formatBDT(summary.totalRevenue),
-        netProfit:        formatBDT(summary.netProfit),
-        salesProfit:      formatBDT(summary.salesProfit),
-        todayProfit:      formatBDT(summary.todayProfit),
-        monthProfit:      formatBDT(summary.monthProfit),
-        totalProfit:      formatBDT(summary.totalProfit),
-        aktersProfit:     formatBDT(summary.aktersProfit),
-        tokonsProfit:     formatBDT(summary.tokonsProfit),
-        aktersWithdrawals:formatBDT(summary.totalWithdrawals),
-        aktersBalance:    formatBDT(summary.aktersBalance),
-        cashInHand:       formatBDT(summary.cashInHand),
-        aktersBalanceRaw: summary.aktersBalance,
+        totalInvestment:    formatBDT(summary.totalInvestment),
+        totalBuyCost:       formatBDT(summary.totalBuyCost),
+        totalRevenue:       formatBDT(summary.totalRevenue),
+        netProfit:          formatBDT(summary.netProfit),
+        salesProfit:        formatBDT(summary.salesProfit),
+        todayProfit:        formatBDT(summary.todayProfit),
+        monthProfit:        formatBDT(summary.monthProfit),
+        totalProfit:        formatBDT(summary.totalProfit),
+        aktersProfit:       formatBDT(summary.aktersProfit),
+        tokonsProfit:       formatBDT(summary.tokonsProfit),
+        aktersWithdrawals:  formatBDT(summary.totalWithdrawals),
+        aktersBalance:      formatBDT(summary.aktersBalance),
+        cashInHand:         formatBDT(summary.cashInHand),
+        aktersBalanceRaw:   summary.aktersBalance,
       },
     });
   } catch (e) { res.status(500).json({ error: e.message }); }

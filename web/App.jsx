@@ -318,6 +318,15 @@ export default function App() {
   const invSum = investment.summary || {};
   const invData = inventory || { items: [], summary: {} };
 
+  // ── Client-side monthly totals (reliable — no backend filter dependency) ──
+  const fmtBDT = v => '৳' + Number(v).toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const monthSales = sales.filter(s => s.date && s.date.slice(0, 7) === selMonth);
+  const monthRevenueCalc = monthSales.reduce((a, s) => a + (s.revenueRaw || 0), 0);
+  const monthProfitCalc  = monthSales.reduce((a, s) => a + (s.profitRaw  || 0), 0);
+  const todayRevenueCalc = sales.filter(s => s.date === TODAY).reduce((a, s) => a + (s.revenueRaw || 0), 0);
+  const totalRevenueCalc = sales.reduce((a, s) => a + (s.revenueRaw || 0), 0);
+  const totalProfitCalc  = sales.reduce((a, s) => a + (s.profitRaw  || 0), 0);
+
   return (
     <div style={{ minHeight: '100vh', background: bgPage, fontFamily: "'Inter', system-ui, sans-serif", color: textDk }}>
 
@@ -360,11 +369,11 @@ export default function App() {
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '14px', marginBottom: '28px' }}>
-            <StatCard label="Today's Sales"             value={summary.todayRevenue}  accent={brand} />
-            <StatCard label={selMonthLabel + ' Sales'}  value={summary.monthRevenue}  accent={amber} />
-            <StatCard label={selMonthLabel + ' Profit'} value={summary.monthProfit}   accent={green} />
-            <StatCard label="Total Company Sales"       value={summary.totalRevenue}  accent={teal} />
-            <StatCard label="Total Profit / Loss"       value={summary.totalProfit}   accent={green} />
+            <StatCard label="Today's Sales"             value={fmtBDT(todayRevenueCalc)}  accent={brand} />
+            <StatCard label={selMonthLabel + ' Sales'}  value={fmtBDT(monthRevenueCalc)}  accent={amber} />
+            <StatCard label={selMonthLabel + ' Profit'} value={fmtBDT(monthProfitCalc)}   accent={monthProfitCalc < 0 ? red : green} />
+            <StatCard label="Total Company Sales"       value={fmtBDT(totalRevenueCalc)}  accent={teal} />
+            <StatCard label="Total Profit / Loss"       value={fmtBDT(totalProfitCalc)}   accent={totalProfitCalc < 0 ? red : green} />
           </div>
           <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', flexWrap: 'wrap' }}>
             <button style={btn(brand)} onClick={() => { setPForm(emptyP); setEditPId(null); setShowPModal(true); }}>＋ Add Product</button>

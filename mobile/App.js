@@ -29,7 +29,7 @@ import axios from 'axios';
 // For physical device: use your Mac's LAN IP
 // For emulator: use http://10.0.2.2:4000
 const API_BASE = 'https://jily3.onrender.com';
-const api      = axios.create({ baseURL: API_BASE, timeout: 10000 });
+const api      = axios.create({ baseURL: API_BASE, timeout: 30000 });
 const getToday = () => new Date().toISOString().slice(0, 10);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -305,6 +305,16 @@ export default function App() {
 
   const selMonthLabel = (monthOpts.find(o => o.val === selMonth) || {}).label || '';
 
+  // ── Client-side monthly totals (reliable — no backend filter dependency) ──
+  const TODAY_STR = getToday();
+  const fmtBDT = v => '৳' + Number(v).toLocaleString('en-BD', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const monthSalesList   = sales.filter(s => s.date && s.date.slice(0, 7) === selMonth);
+  const monthRevenueCalc = monthSalesList.reduce((a, s) => a + (s.revenueRaw || 0), 0);
+  const monthProfitCalc  = monthSalesList.reduce((a, s) => a + (s.profitRaw  || 0), 0);
+  const todayRevenueCalc = sales.filter(s => s.date === TODAY_STR).reduce((a, s) => a + (s.revenueRaw || 0), 0);
+  const totalRevenueCalc = sales.reduce((a, s) => a + (s.revenueRaw || 0), 0);
+  const totalProfitCalc  = sales.reduce((a, s) => a + (s.profitRaw  || 0), 0);
+
   // ── Render helpers ────────────────────────────────────────────────────────
   const renderTabBar = () => (
     <View style={s.tabBar}>
@@ -328,11 +338,11 @@ export default function App() {
       </View>
       {loading ? <ActivityIndicator size="large" color={C.brand} style={{ marginTop: 30 }} /> : (
         <>
-          <StatCard label="Today's Sales"              value={summary.todayRevenue || '৳0.00'} accent={C.brand} />
-          <StatCard label={selMonthLabel + ' Sales'}   value={summary.monthRevenue || '৳0.00'} accent={C.amber} />
-          <StatCard label={selMonthLabel + ' Profit'}  value={summary.monthProfit  || '৳0.00'} accent={isNeg(summary.monthProfit)  ? C.red : C.green} />
-          <StatCard label="Total Company Sales"        value={summary.totalRevenue || '৳0.00'} accent={C.teal} />
-          <StatCard label="Total Profit / Loss"        value={summary.totalProfit  || '৳0.00'} accent={isNeg(summary.totalProfit)  ? C.red : C.green} />
+          <StatCard label="Today's Sales"              value={fmtBDT(todayRevenueCalc)} accent={C.brand} />
+          <StatCard label={selMonthLabel + ' Sales'}   value={fmtBDT(monthRevenueCalc)} accent={C.amber} />
+          <StatCard label={selMonthLabel + ' Profit'}  value={fmtBDT(monthProfitCalc)}  accent={monthProfitCalc < 0 ? C.red : C.green} />
+          <StatCard label="Total Company Sales"        value={fmtBDT(totalRevenueCalc)} accent={C.teal} />
+          <StatCard label="Total Profit / Loss"        value={fmtBDT(totalProfitCalc)}  accent={totalProfitCalc < 0 ? C.red : C.green} />
           <TouchableOpacity style={[s.refreshBtn]} onPress={loadAll}>
             <Text style={s.refreshBtnText}>↻  Refresh Dashboard</Text>
           </TouchableOpacity>
